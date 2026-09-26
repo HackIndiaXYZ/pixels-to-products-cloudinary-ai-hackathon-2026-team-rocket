@@ -120,7 +120,7 @@ export function Dialog({
                   <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
                   {description && <p className="mt-1 text-[13px] leading-relaxed text-ink-3">{description}</p>}
                 </div>
-                <button type="button" onClick={onClose} className="btn btn-ghost btn-sm btn-icon -mr-1.5" aria-label="Close">
+                <button type="button" onClick={onClose} className="btn btn-ghost btn-sm btn-icon -mr-1.5 shrink-0" aria-label="Close">
                   <X className="h-4 w-4" />
                 </button>
               </div>

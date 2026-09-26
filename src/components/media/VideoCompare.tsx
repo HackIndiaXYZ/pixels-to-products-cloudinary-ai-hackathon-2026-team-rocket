@@ -59,12 +59,13 @@ export function VideoCompare({
       </div>
       <div className="grid gap-px bg-line md:grid-cols-2">
         {[
-          { url: beforeUrl, label: beforeLabel, ref: before, ratio: aspect, poster },
-          { url: afterUrl, label: afterLabel, ref: after, ratio: afterAspect ?? aspect, poster: afterPoster ?? poster },
+          { url: beforeUrl, label: beforeLabel, ref: before, ratio: aspect, poster, context: 'asset' as const },
+          // The output is the Studio pipeline's render: its errors can be fixed by editing a step.
+          { url: afterUrl, label: afterLabel, ref: after, ratio: afterAspect ?? aspect, poster: afterPoster ?? poster, context: 'pipeline' as const },
         ].map((pane, i) => (
           <div key={i} className="relative bg-black">
             <div className="relative mx-auto" style={{ aspectRatio: `${Math.max(pane.ratio, 0.5)}`, maxHeight: '60vh' }}>
-              <ProbedVideo url={pane.url} poster={pane.poster} videoRef={pane.ref} />
+              <ProbedVideo url={pane.url} poster={pane.poster} videoRef={pane.ref} context={pane.context} />
             </div>
             <span
               className={cn(

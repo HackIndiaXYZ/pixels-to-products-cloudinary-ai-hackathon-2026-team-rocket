@@ -15,6 +15,16 @@ export type FindingStatus = 'open' | 'monitoring' | 'resolved';
 /** Where an asset came from: the bundled sample set, an upload made in this browser, or a tag sync from Cloudinary. */
 export type AssetSource = 'sample' | 'upload' | 'sync';
 
+/**
+ * How an asset's `capturedAt` was obtained.
+ * - `sample-relative`: a bundled sample whose time is stored as an offset and materialised
+ *   against the viewer's clock when the console loads. Illustrative, not a real capture time.
+ * - `fixed`: a bundled sample whose time is read from the media itself (a timestamp burned
+ *   into the footage); see `MediaAsset.cameraTime`.
+ * - `recorded`: the time Cloudinary recorded for an upload or a synced resource.
+ */
+export type CaptureBasis = 'sample-relative' | 'fixed' | 'recorded';
+
 /** A rectangle in percent of the media frame (0–100). */
 export interface Region {
   x: number;
@@ -59,8 +69,18 @@ export interface MediaAsset {
   title: string;
   site: string;
   zone?: string;
-  /** ISO timestamp of capture. */
+  /** ISO timestamp of capture. See `captureBasis` for how it was obtained. */
   capturedAt: string;
+  /**
+   * How `capturedAt` was obtained. When absent: 'sample-relative' for samples, 'recorded'
+   * otherwise (use `captureBasisOf()` from lib/analytics).
+   */
+  captureBasis?: CaptureBasis;
+  /**
+   * For `fixed` times: the wall-clock time burned into the footage, exactly as shown in frame
+   * (camera-local, no time zone), e.g. "2025-10-03 03:48:49". Show this rather than a converted instant.
+   */
+  cameraTime?: string;
   capturedBy: string;
   tags: string[];
   source: AssetSource;

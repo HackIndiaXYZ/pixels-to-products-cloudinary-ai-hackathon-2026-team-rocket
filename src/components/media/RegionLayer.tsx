@@ -51,7 +51,7 @@ export function RegionLayer({
           {showLabels && r.label && (
             <span
               className={cn(
-                'absolute -top-[18px] left-[-1.5px] whitespace-nowrap rounded-[3px] px-1.5 py-[1px] font-mono text-[9.5px] font-semibold tracking-[0.06em]',
+                'absolute -top-[18px] left-[-1.5px] whitespace-nowrap rounded-[3px] px-1.5 py-[1px] font-mono text-[10.5px] font-semibold leading-[14px] tracking-[0.06em]',
                 style.tag,
                 r.y < 6 && 'top-[2px] left-[2px]',
               )}

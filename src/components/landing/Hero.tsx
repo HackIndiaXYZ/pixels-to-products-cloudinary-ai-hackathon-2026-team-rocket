@@ -1,147 +1,145 @@
 'use client';
 
-import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'framer-motion';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import Link from 'next/link';
-import { ArrowDown, ArrowRight } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { evidenceUrl, rawStillUrl } from '@/lib/cloudinary/media';
-import { fetchInsight, type CloudinaryInsight } from '@/lib/cloudinary/insights';
-import { IMAGE_ACCEPT, measure } from '@/lib/cloudinary/probe';
-import { formatBytes } from '@/lib/format';
-import { RegionLayer } from '@/components/media/RegionLayer';
-import { LiveDot } from '@/components/ui/badges';
-import { landingAsset } from './landing-data';
+import { ArrowDown, ArrowRight, ArrowUpRight } from 'lucide-react';
+import { useRef, type CSSProperties } from 'react';
+import { clamp, useReducedMotionPref } from '@/components/motion/hooks';
+import { cn } from '@/components/ui/cn';
+import { DataField } from './gl/DataField';
+import { FIELD_ATLAS, FIELD_ATLAS_SOURCES } from './gl/field-atlas';
+import { BrandBand } from './hero/BrandBand';
+import { DeliveryProof } from './hero/DeliveryProof';
+import { InspectionViewport } from './hero/InspectionViewport';
+import { KineticWord } from './hero/KineticWord';
+import styles from './hero/hero.module.css';
 
-const HERO = landingAsset('vo-demolition-deck');
-const PROOF_IDS = ['vo-demolition-deck', 'vo-road-collapse', 'vo-crew-ppe', 'vo-receiving-label', 'vo-bridge-truss', 'vo-fleet-checkin'];
+/** Entrance delay for the CSS choreography (see hero.module.css). */
+const at = (ms: number) => ({ '--d': `${ms}ms` }) as CSSProperties;
 
+/* Legibility scrims: the field stays visible, the type always wins. Static layers. */
+const SCRIM_WIDE =
+  'linear-gradient(90deg, color-mix(in oklab, var(--color-canvas) 78%, transparent) 0%, color-mix(in oklab, var(--color-canvas) 58%, transparent) 34%, transparent 58%), linear-gradient(to top, var(--color-canvas) 0%, transparent 26%)';
+const SCRIM_NARROW =
+  'linear-gradient(to bottom, color-mix(in oklab, var(--color-canvas) 62%, transparent) 0%, color-mix(in oklab, var(--color-canvas) 45%, transparent) 48%, transparent 70%), linear-gradient(to top, var(--color-canvas) 0%, transparent 18%)';
+
+/**
+ * Landing hero — "you entered the VisualOps system".
+ *
+ * Reveal order follows the hierarchy: headline → message and actions → the
+ * product (a live Cloudinary inspection frame) → the VISUALOPS brand band that
+ * the whole composition stands on → its technical telemetry. Behind it all, a
+ * WebGL field built from the same Cloudinary media settles from scatter into
+ * order as the page moves on.
+ */
 export function Hero() {
-  const reduce = useReducedMotion();
-  const frameRef = useRef<HTMLDivElement>(null);
-  const split = useMotionValue(reduce ? 50 : 100);
-  const clip = useTransform(split, (v) => `inset(0 0 0 ${v}%)`);
-  const lineLeft = useTransform(split, (v) => `${v}%`);
-  const [insight, setInsight] = useState<CloudinaryInsight | null>(null);
-  const [proof, setProof] = useState<{ original: number; delivered: number; count: number } | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const reduce = useReducedMotionPref();
+  const { scrollYProgress } = useScroll({ target: sectionRef, offset: ['start start', 'end start'] });
 
-  const rawUrl = rawStillUrl(HERO, 1600);
-  const processedUrl = evidenceUrl(HERO, 1600);
-
-  // One slow sweep reveals the Cloudinary rendition, then the cursor takes over.
-  useEffect(() => {
-    if (reduce) return;
-    const controls = animate(split, 38, { duration: 2.2, delay: 0.6, ease: [0.16, 1, 0.3, 1] });
-    return () => controls.stop();
-  }, [reduce, split]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchInsight(HERO).then((i) => !cancelled && setInsight(i)).catch(() => undefined);
-    // Live proof: what Cloudinary actually delivers for the stills on this page.
-    Promise.all(
-      PROOF_IDS.map((id) => measure(evidenceUrl(landingAsset(id), 1600), { accept: IMAGE_ACCEPT })),
-    ).then((results) => {
-      if (cancelled) return;
-      let original = 0;
-      let delivered = 0;
-      let count = 0;
-      for (const r of results) {
-        if (r.kind === 'ready' && r.metrics.originalBytes && r.metrics.bytes) {
-          original += r.metrics.originalBytes;
-          delivered += r.metrics.bytes;
-          count += 1;
-        }
-      }
-      if (count) setProof({ original, delivered, count });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const onPointerMove = (event: React.PointerEvent) => {
-    const rect = frameRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    split.stop();
-    split.set(Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100)));
-  };
+  // Scroll exit: transform/opacity only, bound to motion values (no React renders).
+  const copyY = useTransform(scrollYProgress, (v) => (reduce ? 0 : v * -72));
+  const copyOpacity = useTransform(scrollYProgress, (v) => (reduce ? 1 : 1 - clamp((v - 0.12) / 0.5) * 0.8));
+  const stageY = useTransform(scrollYProgress, (v) => (reduce ? 0 : v * -36));
+  const stageScale = useTransform(scrollYProgress, (v) => (reduce ? 1 : 1 - v * 0.04));
+  const fieldY = useTransform(scrollYProgress, (v) => `${(reduce ? 0 : v * 38).toFixed(2)}%`);
 
   return (
-    <section className="relative overflow-hidden border-b border-line">
-      <div className="survey-grid fade-mask-b pointer-events-none absolute inset-0 opacity-50" />
-      <div className="relative mx-auto grid max-w-[1320px] gap-12 px-4 pb-16 pt-14 sm:px-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-14 lg:pb-24 lg:pt-20">
-        <div>
-          <motion.p
-            initial={{ y: 8 }}
-            animate={{ y: 0 }}
-            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-            className="label"
-          >
-            Pixels to Products · Cloudinary AI Hackathon 2026 · Track 1 — AI Media Pipelines
-          </motion.p>
-          <h1 className="mt-5 text-[44px] font-semibold leading-[1.02] tracking-[-0.045em] text-ink sm:text-[58px] lg:text-[66px]">
-            Turn visual data into operational intelligence.
-          </h1>
-          <p className="mt-6 max-w-[34rem] text-[16.5px] leading-relaxed text-ink-2">
-            Field photos, drone footage and CCTV pile up with nothing but a file name. VisualOps runs every frame through Cloudinary —
-            understanding, structuring and indexing it — so teams can search their media, see where risk is, and act on it.
+    <section
+      ref={sectionRef}
+      aria-labelledby="hero-title"
+      className="relative isolate flex min-h-[100svh] flex-col overflow-hidden border-b border-line bg-canvas pt-[60px]"
+    >
+      {/* Environment */}
+      <motion.div aria-hidden className="pointer-events-none absolute inset-0 -z-20" style={{ y: fieldY }}>
+        <DataField progress={scrollYProgress} />
+      </motion.div>
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 hidden lg:block" style={{ background: SCRIM_WIDE }} />
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 lg:hidden" style={{ background: SCRIM_NARROW }} />
+
+      <div className="relative mx-auto grid w-full max-w-[1440px] flex-1 content-center items-center gap-x-14 gap-y-12 px-4 pb-8 pt-9 sm:px-8 sm:pt-12 lg:grid-cols-[minmax(0,1.06fr)_minmax(0,1fr)] lg:pb-6 xl:gap-x-20">
+        {/* 1 Brand · 2 Message */}
+        <motion.div className="relative" style={{ y: copyY, opacity: copyOpacity }}>
+          <p className={cn('label flex items-center gap-2.5', styles.fade)} style={at(40)}>
+            <span aria-hidden className="h-[5px] w-[5px] shrink-0 bg-signal" />
+            <span>
+              Field media <span aria-hidden>→</span>
+              <span className="sr-only">to</span> evidence, on Cloudinary
+            </span>
           </p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Link href="/console" className="btn btn-primary h-11 px-5 text-[14px]">
-              Open the console <ArrowRight className="h-4 w-4" />
+
+          <h1
+            id="hero-title"
+            className="type-display mt-6 text-[clamp(48px,7.1vw,104px)] text-ink max-[369px]:text-[12.6vw] sm:mt-8"
+          >
+            <span className="sr-only">Turn visual data into operational intelligence.</span>
+            <span aria-hidden className="block">
+              <span className={styles.mask}>
+                <span className={cn(styles.rise, 'whitespace-nowrap')} style={at(120)}>
+                  Turn visual data
+                </span>
+              </span>
+              <span className={styles.mask}>
+                <span className={cn(styles.rise, 'whitespace-nowrap')} style={at(210)}>
+                  into operational
+                </span>
+              </span>
+              <span className={styles.mask}>
+                <span className={cn(styles.rise, 'whitespace-nowrap')} style={at(300)}>
+                  <KineticWord>intelligence</KineticWord>
+                  <span className="text-signal">.</span>
+                </span>
+              </span>
+            </span>
+          </h1>
+
+          <p
+            className={cn('mt-7 max-w-[34rem] text-[16px] leading-[1.6] text-ink-2 sm:mt-8 sm:text-[17px]', styles.fadeUp)}
+            style={at(640)}
+          >
+            Scattered field photos, drone footage and CCTV become searchable, structured operational evidence. Every frame is
+            processed end to end by Cloudinary.
+          </p>
+
+          <div className={cn('mt-8 flex flex-wrap items-center gap-1.5 sm:mt-9 sm:gap-3', styles.fadeUp)} style={at(760)}>
+            <Link href="/console" data-cursor="OPEN" className="group btn btn-primary btn-lg">
+              Launch console
+              <ArrowRight aria-hidden className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
             </Link>
-            <a href="#pipeline" className="btn btn-secondary h-11 px-5 text-[14px]">
-              See the pipeline <ArrowDown className="h-4 w-4" />
+            <a href="#platform" className="btn btn-ghost btn-lg max-sm:px-3.5">
+              See how it works
+              <ArrowDown aria-hidden className="h-4 w-4" />
             </a>
           </div>
-          <p className="mt-7 flex max-w-[34rem] items-start gap-2 text-[13px] leading-relaxed text-ink-3">
-            <LiveDot className="mt-1.5" />
-            <span>
-              {proof ? (
-                <>
-                  Measured just now from Cloudinary: {proof.count} evidence frames on this page come from{' '}
-                  <span className="num text-ink-2">{formatBytes(proof.original)}</span> of originals, delivered as{' '}
-                  <span className="num text-signal">{formatBytes(proof.delivered)}</span> (−{Math.round((1 - proof.delivered / proof.original) * 100)}%).
-                </>
-              ) : (
-                'Measuring what Cloudinary delivers for this page…'
-              )}
-            </span>
-          </p>
-        </div>
+        </motion.div>
 
-        {/* Inspection frame */}
-        <div className="relative">
-          <div
-            ref={frameRef}
-            onPointerMove={onPointerMove}
-            className="relative aspect-video w-full cursor-ew-resize select-none overflow-hidden rounded-[14px] border border-line-strong bg-raised shadow-[0_40px_120px_-40px_rgba(0,0,0,0.9)]"
-            role="img"
-            aria-label="Drone frame of a demolition deck: raw capture compared with Cloudinary's evidence rendition. Move the pointer to compare."
+        {/* 3 Product · 4 Technical detail */}
+        <motion.div className="relative" style={{ y: stageY, scale: stageScale }}>
+          <div className={styles.frameIn} style={at(420)}>
+            <InspectionViewport />
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Brand band: stands on the proof rail, behind the copy and the frame. */}
+      <div className="relative -z-[5] mx-auto w-full max-w-[1440px] px-4 sm:px-8">
+        <BrandBand progress={scrollYProgress} areaRef={sectionRef} />
+      </div>
+
+      {/* Proof rail */}
+      <div className={cn('relative border-t border-line', styles.fade)} style={at(1000)}>
+        <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-2 px-4 py-4 sm:px-8 lg:flex-row lg:items-center lg:justify-between lg:gap-10">
+          <DeliveryProof />
+          <a
+            href={FIELD_ATLAS.url}
+            target="_blank"
+            rel="noreferrer"
+            data-cursor="VIEW"
+            className="group hidden shrink-0 items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3 transition-colors hover:text-ink-2 lg:inline-flex"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element -- Cloudinary frame grab */}
-            <img src={rawUrl} alt="" className="absolute inset-0 h-full w-full object-cover" fetchPriority="high" />
-            <motion.div className="absolute inset-0" style={{ clipPath: clip }}>
-              {/* eslint-disable-next-line @next/next/no-img-element -- Cloudinary evidence rendition */}
-              <img src={processedUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
-            </motion.div>
-            {HERO.finding?.region && <RegionLayer regions={[HERO.finding.region]} variant="annotation" />}
-            {insight?.focus && <RegionLayer regions={[{ ...insight.focus, label: 'CLOUDINARY g_auto' }]} variant="focus" />}
-            <motion.div className="pointer-events-none absolute inset-y-0 w-px bg-signal" style={{ left: lineLeft }}>
-              <span className="absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-[5px] bg-signal px-1.5 py-0.5 font-mono text-[9.5px] font-semibold tracking-[0.06em] text-signal-ink">
-                RAW | CLOUDINARY
-              </span>
-            </motion.div>
-            <span className="reticle" />
-          </div>
-          <div className="mt-3 grid gap-2 font-mono text-[11px] text-ink-3 sm:grid-cols-[auto_1fr] sm:gap-6">
-            <span>
-              <span className="text-ink-2">{HERO.fileName}</span> · frame 00:0{HERO.posterOffset} · {HERO.site}
-            </span>
-            <span className="truncate sm:text-right">
-              so_{HERO.posterOffset} / c_limit,w_1600 / e_improve / e_sharpen:60 / q_auto / f_auto
-            </span>
-          </div>
+            Field texture · {FIELD_ATLAS_SOURCES} images composited by Cloudinary in one request
+            <ArrowUpRight aria-hidden className="h-3 w-3 transition-transform duration-200 group-hover:-translate-y-px group-hover:translate-x-px" />
+          </a>
         </div>
       </div>
     </section>

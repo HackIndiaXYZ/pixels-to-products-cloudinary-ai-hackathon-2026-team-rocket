@@ -94,8 +94,9 @@ export function frameUrl(asset: MediaAsset, seconds: number, width = 480, height
 }
 
 /**
- * Cloudinary `fl_getinfo`: returns JSON describing the input, the g_auto
- * subject region and any detected facial landmarks.
+ * Cloudinary `fl_getinfo` on a 1:1 `g_auto` crop: returns JSON describing the
+ * input, the crop window g_auto chose (its size is set by the 1:1 aspect; its
+ * position is the content signal) and any automatically detected facial landmarks.
  */
 export function insightUrl(asset: MediaAsset): string {
   return deliveryUrl(
@@ -119,7 +120,10 @@ export function evidenceUrl(asset: MediaAsset, width = 1600): string {
   );
 }
 
-/** Faces pixelated by Cloudinary before media leaves the team. */
+/**
+ * Faces Cloudinary detects are pixelated before media leaves the team. Only
+ * detected faces change: a frame with no detections renders unchanged.
+ */
 export function redactedUrl(asset: MediaAsset, width = 1600): string {
   return deliveryUrl(
     refOf(asset),

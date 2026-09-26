@@ -1,22 +1,35 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  startTransition,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react';
 import type { CloudSettings, MediaAsset } from '@/lib/types';
 import { buildSampleAssets } from '@/lib/data/dataset';
 import { ENV_SETTINGS } from '@/lib/cloudinary/config';
 import { defaultPresetFor, presetSteps, type PipelineStep } from '@/lib/cloudinary/pipeline';
 import { DEFAULT_SCOPE, type ReportKind, type ReportScope } from '@/lib/report';
+import { hashFor, parseHash, readEntry, rememberScroll, writeEntry, type HistoryEntry, type View } from './state/history';
 
-export type View = 'overview' | 'library' | 'incidents' | 'studio' | 'reports';
-export const VIEWS: View[] = ['overview', 'library', 'incidents', 'studio', 'reports'];
+export { VIEWS, type View } from './state/history';
 
-interface Route {
+/** The view on screen. The Inspector's record is not part of it, so opening a record never re-renders the views. */
+export interface Route {
   view: View;
-  assetId?: string;
 }
 
 const USER_ASSETS_KEY = 'visualops.userAssets.v1';
 const SETTINGS_KEY = 'visualops.settings.v1';
+const DEFAULT_STUDIO_ASSET = 'vo-road-collapse';
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -35,14 +48,10 @@ function writeJson(key: string, value: unknown) {
   }
 }
 
-function parseHash(hash: string): Route {
-  const [view, ...rest] = hash.replace(/^#\/?/, '').split('/');
-  const v = VIEWS.includes(view as View) ? (view as View) : 'overview';
-  const assetId = rest.length ? decodeURIComponent(rest.join('/')) : undefined;
-  return { view: v, assetId };
-}
+// ---- context shapes -------------------------------------------------------
 
-interface ConsoleContextValue {
+/** Dataset and Cloudinary settings. Changes when assets are added/removed or settings are saved. */
+export interface ConsoleData {
   now: number;
   assets: MediaAsset[];
   userAssets: MediaAsset[];
@@ -53,65 +62,120 @@ interface ConsoleContextValue {
   setSettings: (settings: CloudSettings) => void;
   resetSettings: () => void;
   settingsOverridden: boolean;
+}
 
+/** Where the console is and what Studio/Reports are working on. Changes on view switches and Studio/Report edits. */
+export interface ConsoleRoute {
   route: Route;
   navigate: (view: View, assetId?: string) => void;
-
-  inspectId: string | null;
-  inspect: (id: string | null) => void;
-
   studioAssetId: string;
   studioSteps: PipelineStep[];
   setStudioAsset: (id: string) => void;
   setStudioSteps: (steps: PipelineStep[]) => void;
   openInStudio: (id: string, steps?: PipelineStep[]) => void;
-
   reportKind: ReportKind;
   setReportKind: (kind: ReportKind) => void;
   reportScope: ReportScope;
   setReportScope: (scope: ReportScope) => void;
   reportFor: (assetIds: string[], kind?: ReportKind) => void;
+}
 
+/** Overlays: Inspector, Ask, Ingest, Settings, Studio export. Changes whenever one opens or closes. */
+export interface ConsoleUi {
+  inspectId: string | null;
+  /** Opens (id) or programmatically clears (null) the Inspector and records it in the URL. Never traverses history. */
+  inspect: (id: string | null) => void;
+  /** User-initiated close (Esc, ✕, breadcrumb): steps Back when the Inspector pushed the entry, so Forward reopens it. */
+  closeInspector: () => void;
   paletteOpen: boolean;
-  setPaletteOpen: (open: boolean) => void;
+  setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   ingestOpen: boolean;
-  setIngestOpen: (open: boolean) => void;
+  setIngestOpen: Dispatch<SetStateAction<boolean>>;
   settingsOpen: boolean;
-  setSettingsOpen: (open: boolean) => void;
+  setSettingsOpen: Dispatch<SetStateAction<boolean>>;
   exportOpen: boolean;
-  setExportOpen: (open: boolean) => void;
+  setExportOpen: Dispatch<SetStateAction<boolean>>;
 }
 
-const ConsoleContext = createContext<ConsoleContextValue | null>(null);
+/** Every stable callback. The value never changes, so reading it never causes a re-render. */
+export interface ConsoleActions {
+  navigate: ConsoleRoute['navigate'];
+  openInStudio: ConsoleRoute['openInStudio'];
+  reportFor: ConsoleRoute['reportFor'];
+  setStudioAsset: ConsoleRoute['setStudioAsset'];
+  setReportKind: ConsoleRoute['setReportKind'];
+  setReportScope: ConsoleRoute['setReportScope'];
+  inspect: ConsoleUi['inspect'];
+  closeInspector: ConsoleUi['closeInspector'];
+  setPaletteOpen: ConsoleUi['setPaletteOpen'];
+  setIngestOpen: ConsoleUi['setIngestOpen'];
+  setSettingsOpen: ConsoleUi['setSettingsOpen'];
+  setExportOpen: ConsoleUi['setExportOpen'];
+  addUserAssets: ConsoleData['addUserAssets'];
+  removeUserAsset: ConsoleData['removeUserAsset'];
+  setSettings: ConsoleData['setSettings'];
+  resetSettings: ConsoleData['resetSettings'];
+}
 
+export type ConsoleContextValue = ConsoleData & ConsoleRoute & ConsoleUi;
+
+const DataContext = createContext<ConsoleData | null>(null);
+const RouteContext = createContext<ConsoleRoute | null>(null);
+const UiContext = createContext<ConsoleUi | null>(null);
+const ActionsContext = createContext<ConsoleActions | null>(null);
+
+function required<T>(value: T | null, hook: string): T {
+  if (!value) throw new Error(`${hook} must be used inside <ConsoleProvider>`);
+  return value;
+}
+
+export function useConsoleData(): ConsoleData {
+  return required(useContext(DataContext), 'useConsoleData');
+}
+
+export function useConsoleRoute(): ConsoleRoute {
+  return required(useContext(RouteContext), 'useConsoleRoute');
+}
+
+export function useConsoleUi(): ConsoleUi {
+  return required(useContext(UiContext), 'useConsoleUi');
+}
+
+export function useConsoleActions(): ConsoleActions {
+  return required(useContext(ActionsContext), 'useConsoleActions');
+}
+
+/**
+ * Everything at once, for compatibility. It subscribes to all contexts, so the
+ * caller re-renders on any change (opening Ask, the Inspector, a dialog…).
+ * Prefer the narrow hooks above in anything that renders often.
+ */
 export function useConsole(): ConsoleContextValue {
-  const ctx = useContext(ConsoleContext);
-  if (!ctx) throw new Error('useConsole must be used inside <ConsoleProvider>');
-  return ctx;
+  const data = useConsoleData();
+  const route = useConsoleRoute();
+  const ui = useConsoleUi();
+  return useMemo(() => ({ ...data, ...route, ...ui }), [data, route, ui]);
 }
+
+// ---- provider -------------------------------------------------------------
 
 export function ConsoleProvider({ children }: { children: ReactNode }) {
-  // Client-only provider (see ConsoleRoot): Date.now and localStorage are safe here.
+  // Client-only provider (see ConsoleRoot): Date.now, localStorage and the URL are safe here.
   const [now] = useState(() => Date.now());
   const [samples] = useState(() => buildSampleAssets(now));
   const [userAssets, setUserAssets] = useState<MediaAsset[]>(() => readJson<MediaAsset[]>(USER_ASSETS_KEY, []));
   const [settingsOverride, setSettingsOverride] = useState<CloudSettings | null>(() =>
     readJson<CloudSettings | null>(SETTINGS_KEY, null),
   );
-  const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
-  const [inspectId, setInspectId] = useState<string | null>(() => {
+
+  // Seeded from the URL at first render; the layout effect below re-reads it before paint, because a
+  // client-side navigation into /console#… renders this provider before Next.js writes the new URL.
+  const [route, setRoute] = useState<Route>(() => ({ view: parseHash(window.location.hash).view }));
+  const [inspectId, setInspectId] = useState<string | null>(() => readEntry().inspecting);
+  const [studioAssetId, setStudioAssetId] = useState<string>(() => {
     const r = parseHash(window.location.hash);
-    return r.view !== 'studio' && r.assetId ? r.assetId : null;
+    return r.view === 'studio' && r.assetId ? r.assetId : DEFAULT_STUDIO_ASSET;
   });
-
-  const assets = useMemo(() => [...userAssets, ...samples], [userAssets, samples]);
-  const getAsset = useCallback((id: string | undefined | null) => (id ? assets.find((a) => a.id === id) : undefined), [assets]);
-
-  const initialStudio = (() => {
-    const r = parseHash(window.location.hash);
-    return r.view === 'studio' && r.assetId ? r.assetId : 'vo-road-collapse';
-  })();
-  const [studioAssetId, setStudioAssetId] = useState<string>(initialStudio);
   const [pipelines, setPipelines] = useState<Record<string, PipelineStep[]>>({});
 
   const [reportKind, setReportKind] = useState<ReportKind>('inspection');
@@ -122,23 +186,120 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
-  useEffect(() => {
-    const onHash = () => {
-      const next = parseHash(window.location.hash);
-      setRoute(next);
-      if (next.view === 'studio' && next.assetId) setStudioAssetId(next.assetId);
+  // ---- routing ------------------------------------------------------------
+
+  /** The committed view, for callbacks (a pending transition may not have rendered yet). */
+  const shownView = useRef<View>(route.view);
+  /** Where to scroll once the next view has committed (not while the old one is still up); null leaves it. */
+  const scrollOnCommit = useRef<number | null>(null);
+  /**
+   * True while the current entry is one inspect() pushed in this session. Backs up the history-state marker,
+   * which a Next.js router refresh (dev HMR, for one) can rewrite away.
+   */
+  const pushedInspector = useRef(false);
+
+  useLayoutEffect(() => {
+    shownView.current = route.view;
+    const top = scrollOnCommit.current;
+    if (top === null) return;
+    scrollOnCommit.current = null;
+    // Instant: html has scroll-behavior: smooth, which would drift the new view upward for ~500 ms.
+    window.scrollTo({ top, behavior: 'instant' });
+  }, [route.view]);
+
+  /** Puts a history entry on screen. A view change is a transition, so mounting the next view never blocks input. */
+  const apply = useCallback((entry: HistoryEntry, urgent = false) => {
+    const commit = () => {
+      setRoute((prev) => (prev.view === entry.view ? prev : { view: entry.view }));
+      if (entry.view === 'studio' && entry.assetId) setStudioAssetId(entry.assetId);
+      setInspectId(entry.inspecting);
     };
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    if (urgent || entry.view === shownView.current) commit();
+    else startTransition(commit);
   }, []);
 
-  const navigate = useCallback((view: View, assetId?: string) => {
-    const hash = `#${view}${assetId ? `/${encodeURIComponent(assetId)}` : ''}`;
-    if (window.location.hash !== hash) window.location.hash = hash;
-    window.scrollTo({ top: 0 });
+  // URL → state: on mount (before paint), on hash edits and on Back/Forward. Reads window.location, not
+  // event.newURL, so a queued hashchange can never re-apply an entry that has since been replaced.
+  useLayoutEffect(() => {
+    const path = window.location.pathname;
+    const sync = () => {
+      if (window.location.pathname !== path) return; // leaving the console: Next.js owns this traversal
+      // An entry the browser made itself (address-bar edit, plain #anchor) carries no router state. Adopting it
+      // keeps Next.js's canonical URL in step, so its next history write can't restore a stale hash.
+      if (!window.history.state) window.history.replaceState(null, '', window.location.href);
+      pushedInspector.current = false;
+      const entry = readEntry();
+      // The browser restores scroll before the other view has rendered, so it clamps; restore it after commit.
+      if (entry.view !== shownView.current) scrollOnCommit.current = entry.scroll ?? 0;
+      apply(entry);
+    };
+    apply(readEntry(), true);
+    // Next.js leaves the scroll alone when a link's #fragment names no element (every console hash), so a link
+    // clicked halfway down the landing page would otherwise open the console halfway down too.
+    if (window.scrollY) window.scrollTo({ top: 0, behavior: 'instant' });
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('popstate', sync);
+    };
+  }, [apply]);
+
+  const navigate = useCallback(
+    (view: View, assetId?: string) => {
+      const url = hashFor(view, assetId);
+      const leaving = view !== shownView.current;
+      // A new entry unless we're already exactly there (an Inspector over Studio shares Studio's URL).
+      if (window.location.hash !== url || readEntry().marker) {
+        if (leaving) rememberScroll(); // so Back returns to the same place in this view
+        writeEntry('push', url);
+        pushedInspector.current = false;
+      }
+      if (leaving) {
+        scrollOnCommit.current = 0;
+      } else {
+        scrollOnCommit.current = null;
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      }
+      apply(readEntry());
+    },
+    [apply],
+  );
+
+  const inspect = useCallback((id: string | null) => {
+    const current = readEntry();
+    if (id) {
+      if (current.inspecting !== id) {
+        const url = current.view === 'studio' ? window.location.hash || hashFor('studio') : hashFor(current.view, id);
+        // Stepping between records replaces the entry; opening one pushes, so Back closes it.
+        if (current.inspecting) writeEntry('replace', url, current.marker || pushedInspector.current ? id : null);
+        else {
+          writeEntry('push', url, id);
+          pushedInspector.current = true;
+        }
+      }
+    } else if (current.inspecting) {
+      // Programmatic clear (report, studio, remove…): drop the record from the URL without traversing history.
+      writeEntry('replace', current.view === 'studio' ? window.location.hash : hashFor(current.view));
+      pushedInspector.current = false;
+    }
+    setInspectId(id);
   }, []);
 
-  const inspect = useCallback((id: string | null) => setInspectId(id), []);
+  const closeInspector = useCallback(() => {
+    if (readEntry().marker || pushedInspector.current) {
+      pushedInspector.current = false;
+      setInspectId(null);
+      window.history.back(); // popstate re-syncs; Forward reopens the record
+    } else {
+      inspect(null); // opened from a pasted link: nothing of ours to step back to
+    }
+  }, [inspect]);
+
+  // ---- data ---------------------------------------------------------------
+
+  const assets = useMemo(() => [...userAssets, ...samples], [userAssets, samples]);
+  const getAsset = useCallback((id: string | undefined | null) => (id ? assets.find((a) => a.id === id) : undefined), [assets]);
 
   const addUserAssets = useCallback((incoming: MediaAsset[]) => {
     setUserAssets((prev) => {
@@ -172,25 +333,25 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const studioAsset = getAsset(studioAssetId) ?? samples[0];
-  const studioSteps = pipelines[studioAsset.id] ?? presetSteps(defaultPresetFor(studioAsset));
+  // ---- studio & reports ---------------------------------------------------
+
+  const studioAsset = useMemo(() => getAsset(studioAssetId) ?? samples[0], [getAsset, studioAssetId, samples]);
+  const studioPipeline = pipelines[studioAsset.id];
+  // Memoised so the steps (and their ids) stay stable until the asset or pipeline actually changes.
+  const studioSteps = useMemo(() => studioPipeline ?? presetSteps(defaultPresetFor(studioAsset)), [studioPipeline, studioAsset]);
   const setStudioSteps = useCallback(
     (steps: PipelineStep[]) => setPipelines((prev) => ({ ...prev, [studioAsset.id]: steps })),
     [studioAsset.id],
   );
   const setStudioAsset = useCallback((id: string) => {
     setStudioAssetId(id);
-    const hash = `#studio/${encodeURIComponent(id)}`;
-    if (window.location.hash.startsWith('#studio') && window.location.hash !== hash) {
-      window.history.replaceState(null, '', hash);
-    }
+    const current = readEntry();
+    if (current.view === 'studio' && current.assetId !== id) writeEntry('replace', hashFor('studio', id), current.marker);
   }, []);
   const openInStudio = useCallback(
     (id: string, steps?: PipelineStep[]) => {
-      setStudioAssetId(id);
       if (steps) setPipelines((prev) => ({ ...prev, [id]: steps }));
-      setInspectId(null);
-      navigate('studio', id);
+      navigate('studio', id); // applies the studio asset and closes the Inspector
     },
     [navigate],
   );
@@ -199,45 +360,83 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     (assetIds: string[], kind?: ReportKind) => {
       setReportScope({ ...DEFAULT_SCOPE, assetIds });
       if (kind) setReportKind(kind);
-      navigate('reports');
+      navigate('reports'); // closes the Inspector; Back returns to it
     },
     [navigate],
   );
 
-  const value: ConsoleContextValue = {
-    now,
-    assets,
-    userAssets,
-    getAsset,
-    addUserAssets,
-    removeUserAsset,
-    settings,
-    setSettings,
-    resetSettings,
-    settingsOverridden: settingsOverride !== null,
-    route,
-    navigate,
-    inspectId,
-    inspect,
-    studioAssetId: studioAsset.id,
-    studioSteps,
-    setStudioAsset,
-    setStudioSteps,
-    openInStudio,
-    reportKind,
-    setReportKind,
-    reportScope,
-    setReportScope,
-    reportFor,
-    paletteOpen,
-    setPaletteOpen,
-    ingestOpen,
-    setIngestOpen,
-    settingsOpen,
-    setSettingsOpen,
-    exportOpen,
-    setExportOpen,
-  };
+  // ---- context values -------------------------------------------------------
 
-  return <ConsoleContext.Provider value={value}>{children}</ConsoleContext.Provider>;
+  const settingsOverridden = settingsOverride !== null;
+  const data = useMemo<ConsoleData>(
+    () => ({ now, assets, userAssets, getAsset, addUserAssets, removeUserAsset, settings, setSettings, resetSettings, settingsOverridden }),
+    [now, assets, userAssets, getAsset, addUserAssets, removeUserAsset, settings, setSettings, resetSettings, settingsOverridden],
+  );
+
+  const routeValue = useMemo<ConsoleRoute>(
+    () => ({
+      route,
+      navigate,
+      studioAssetId: studioAsset.id,
+      studioSteps,
+      setStudioAsset,
+      setStudioSteps,
+      openInStudio,
+      reportKind,
+      setReportKind,
+      reportScope,
+      setReportScope,
+      reportFor,
+    }),
+    [route, navigate, studioAsset.id, studioSteps, setStudioAsset, setStudioSteps, openInStudio, reportKind, reportScope, reportFor],
+  );
+
+  const ui = useMemo<ConsoleUi>(
+    () => ({
+      inspectId,
+      inspect,
+      closeInspector,
+      paletteOpen,
+      setPaletteOpen,
+      ingestOpen,
+      setIngestOpen,
+      settingsOpen,
+      setSettingsOpen,
+      exportOpen,
+      setExportOpen,
+    }),
+    [inspectId, inspect, closeInspector, paletteOpen, ingestOpen, settingsOpen, exportOpen],
+  );
+
+  const actions = useMemo<ConsoleActions>(
+    () => ({
+      navigate,
+      openInStudio,
+      reportFor,
+      setStudioAsset,
+      setReportKind,
+      setReportScope,
+      inspect,
+      closeInspector,
+      setPaletteOpen,
+      setIngestOpen,
+      setSettingsOpen,
+      setExportOpen,
+      addUserAssets,
+      removeUserAsset,
+      setSettings,
+      resetSettings,
+    }),
+    [navigate, openInStudio, reportFor, setStudioAsset, inspect, closeInspector, addUserAssets, removeUserAsset, setSettings, resetSettings],
+  );
+
+  return (
+    <ActionsContext.Provider value={actions}>
+      <DataContext.Provider value={data}>
+        <RouteContext.Provider value={routeValue}>
+          <UiContext.Provider value={ui}>{children}</UiContext.Provider>
+        </RouteContext.Provider>
+      </DataContext.Provider>
+    </ActionsContext.Provider>
+  );
 }

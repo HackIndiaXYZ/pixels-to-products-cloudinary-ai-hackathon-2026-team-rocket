@@ -1,6 +1,6 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import { memo, useSyncExternalStore } from 'react';
 import { ConsoleProvider } from './store';
 import { ConsoleShell } from './ConsoleShell';
 
@@ -12,13 +12,20 @@ const subscribe = () => () => {};
  */
 export function ConsoleRoot() {
   const isClient = useSyncExternalStore(subscribe, () => true, () => false);
-  if (!isClient) return <ConsoleSkeleton />;
+  return isClient ? <ConsoleApp /> : <ConsoleSkeleton />;
+}
+
+/**
+ * Memoised with no props: when Next.js re-renders the page segment (a router refresh, say),
+ * the console's state and tree are left alone instead of re-rendering from the top.
+ */
+const ConsoleApp = memo(function ConsoleApp() {
   return (
     <ConsoleProvider>
       <ConsoleShell />
     </ConsoleProvider>
   );
-}
+});
 
 function ConsoleSkeleton() {
   return (

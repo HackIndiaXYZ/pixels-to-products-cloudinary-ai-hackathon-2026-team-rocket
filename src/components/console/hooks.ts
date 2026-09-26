@@ -8,10 +8,11 @@ import {
   getMeasurement,
   measure,
   measurementsVersion,
+  schedulePerFrame,
   subscribeMeasurements,
   type DeliveryMetrics,
 } from '@/lib/cloudinary/probe';
-import { fetchInsight, type CloudinaryInsight } from '@/lib/cloudinary/insights';
+import { cachedInsight, fetchInsight, type CloudinaryInsight } from '@/lib/cloudinary/insights';
 
 export function useMeasurementsVersion(): number {
   return useSyncExternalStore(subscribeMeasurements, measurementsVersion, () => 0);
@@ -28,9 +29,14 @@ export interface DeliveryTotals {
   byAsset: Record<string, DeliveryMetrics | undefined>;
 }
 
+/** Width limit (c_limit) of the still VisualOps serves for a photo in the console. */
+export const SERVED_IMAGE_WIDTH = 1600;
+/** Width limit (c_limit) of the playback rendition VisualOps serves for a video in the console. */
+export const SERVED_VIDEO_WIDTH = 1280;
+
 /** The URL VisualOps actually serves for an asset in the console. */
 export function servedUrl(asset: MediaAsset): string {
-  return asset.resourceType === 'video' ? playbackUrl(asset) : displayUrl(asset, 1600);
+  return asset.resourceType === 'video' ? playbackUrl(asset, SERVED_VIDEO_WIDTH) : displayUrl(asset, SERVED_IMAGE_WIDTH);
 }
 
 /**
@@ -76,27 +82,71 @@ export function useDeliveryTotals(assets: MediaAsset[]): DeliveryTotals {
   }, [urls, version]);
 }
 
-/** Cloudinary fl_getinfo signals for a set of assets (faces, subject region). */
-export function useInsights(assets: MediaAsset[]): Record<string, CloudinaryInsight | 'error' | undefined> {
-  const [insights, setInsights] = useState<Record<string, CloudinaryInsight | 'error' | undefined>>({});
+export type InsightState = CloudinaryInsight | 'error' | undefined;
+
+/** The fl_getinfo answers this session already holds for `assets` (no request, no wait). */
+function seedInsights(assets: MediaAsset[]): Record<string, InsightState> {
+  const out: Record<string, InsightState> = {};
+  for (const asset of assets) {
+    const insight = cachedInsight(asset);
+    if (insight) out[asset.id] = insight;
+  }
+  return out;
+}
+
+/**
+ * Cloudinary fl_getinfo signals (g_auto crop window and face detections) for a
+ * set of assets, keyed by asset id: an insight, 'error', or undefined while the
+ * request is pending.
+ *
+ * Answers already cached this session are in the first render. Answers that
+ * arrive later are gathered and committed together, once per animation frame
+ * (the probe store's shared scheduler), so a dataset's worth of responses costs
+ * a handful of renders instead of one per response — and no tile waits for the
+ * slowest request.
+ */
+export function useInsights(assets: MediaAsset[]): Record<string, InsightState> {
+  const [store, setStore] = useState<Record<string, InsightState>>(() => seedInsights(assets));
   const key = assets.map((a) => a.id).join('|');
+
   useEffect(() => {
     let cancelled = false;
+    let cancelFlush: (() => void) | undefined;
+    let batch: Record<string, InsightState> = {};
+    const flush = () => {
+      if (cancelled) return;
+      const arrived = batch;
+      batch = {};
+      setStore((prev) => {
+        // Answers the first render already showed (cached ones) change nothing: keep the same object so React bails out.
+        const changed = Object.keys(arrived).some((id) => prev[id] !== arrived[id]);
+        return changed ? { ...prev, ...arrived } : prev;
+      });
+    };
+    const collect = (id: string, value: InsightState) => {
+      if (cancelled) return;
+      batch[id] = value;
+      cancelFlush = schedulePerFrame(flush); // deduplicated: one flush per frame however many answers arrive
+    };
     assets.forEach((asset) => {
-      fetchInsight(asset)
-        .then((insight) => {
-          if (!cancelled) setInsights((prev) => ({ ...prev, [asset.id]: insight }));
-        })
-        .catch(() => {
-          if (!cancelled) setInsights((prev) => ({ ...prev, [asset.id]: 'error' }));
-        });
+      fetchInsight(asset).then(
+        (insight) => collect(asset.id, insight),
+        () => collect(asset.id, 'error'),
+      );
     });
     return () => {
       cancelled = true;
+      cancelFlush?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by asset ids
   }, [key]);
-  return insights;
+
+  // Only the requested assets: answers for assets no longer in the list are never counted.
+  return useMemo(() => {
+    const out: Record<string, InsightState> = {};
+    for (const asset of assets) out[asset.id] = store[asset.id];
+    return out;
+  }, [assets, store]);
 }
 
 export function useInsight(asset: MediaAsset | undefined): { insight?: CloudinaryInsight; error?: string } {
@@ -111,6 +161,11 @@ export function useInsight(asset: MediaAsset | undefined): { insight?: Cloudinar
       cancelled = true;
     };
   }, [asset]);
-  if (!asset || state.id !== asset.id) return {};
+  if (!asset) return {};
+  if (state.id !== asset.id) {
+    // Already answered this session: show it now rather than one render later.
+    const cached = cachedInsight(asset);
+    return cached ? { insight: cached } : {};
+  }
   return { insight: state.insight, error: state.error };
 }

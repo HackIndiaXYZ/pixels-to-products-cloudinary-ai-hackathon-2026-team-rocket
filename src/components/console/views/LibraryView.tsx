@@ -1,75 +1,119 @@
 'use client';
 
-import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { CloudUpload, Film, Image as ImageIcon, LayoutGrid, Rows3, Search, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import type { Category, MediaAsset, ResourceType, Severity } from '@/lib/types';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import type { Category, MediaAsset, Severity } from '@/lib/types';
 import { CATEGORIES, CATEGORY_LABEL, SEVERITIES, fieldAssets, sitesOf } from '@/lib/analytics';
-import { thumbUrl } from '@/lib/cloudinary/media';
-import { formatBytes, formatDateTime, titleCase } from '@/lib/format';
-import { AssetCard } from '@/components/media/AssetCard';
-import { CloudImage } from '@/components/media/CloudImage';
-import { CategoryTag, SeverityBadge } from '@/components/ui/badges';
+import { titleCase } from '@/lib/format';
+import { SeverityDot } from '@/components/ui/badges';
 import { Segmented } from '@/components/ui/Segmented';
-import { useConsole } from '../store';
+import { cn } from '@/components/ui/cn';
+import { LibraryEmpty } from '../library/LibraryEmpty';
+import { LibraryGrid, LoadMore } from '../library/LibraryGrid';
+import { LibraryList } from '../library/LibraryList';
+import {
+  DEFAULT_FILTERS,
+  SORT_LABEL,
+  SOURCE_LABEL,
+  activeFilterCount,
+  describeFilters,
+  facetCounts,
+  hasSampleTimes,
+  matches,
+  poolFor,
+  sortAssets,
+  type LibraryFilters,
+  type SortOrder,
+  type SourceFilter,
+  type TypeFilter,
+} from '../library/model';
+import { warmInspector } from '../library/renditions';
+import { publishLibrarySequence } from '../library/sequence';
+import { useConsoleActions, useConsoleData, useConsoleUi } from '../store';
 import { ViewHeader } from './ViewHeader';
 
-type TypeFilter = 'all' | ResourceType;
-type SourceFilter = 'all' | 'sample' | 'upload' | 'sync' | 'reference';
+/** Tiles rendered per page (lazy images keep actual loads to what is on screen); more load near the end. */
+const PAGE = 40;
+const LAYOUT_STORAGE_KEY = 'visualops.library.layout.v1';
+// 16px on touch screens, so iOS Safari doesn't zoom the page when a select is focused.
+const SELECT = 'input h-8 w-auto max-w-full text-[12.5px] pointer-coarse:text-base';
 
-function matchesText(asset: MediaAsset, q: string): boolean {
-  if (!q) return true;
-  const hay = [asset.title, asset.fileName, asset.site, asset.zone ?? '', asset.finding?.title ?? '', asset.finding?.id ?? '', ...asset.tags]
-    .join(' ')
-    .toLowerCase();
-  return q
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((term) => hay.includes(term));
+type Layout = 'grid' | 'list';
+
+function readLayout(): Layout {
+  try {
+    return window.localStorage.getItem(LAYOUT_STORAGE_KEY) === 'list' ? 'list' : 'grid';
+  } catch {
+    return 'grid';
+  }
 }
 
-export function LibraryView() {
-  const { assets, now, inspect, inspectId, setIngestOpen } = useConsole();
-  const [query, setQuery] = useState('');
-  const [type, setType] = useState<TypeFilter>('all');
-  const [category, setCategory] = useState<'all' | Category>('all');
-  const [severity, setSeverity] = useState<'all' | Severity>('all');
-  const [site, setSite] = useState('all');
-  const [source, setSource] = useState<SourceFilter>('all');
-  const [layout, setLayout] = useState<'grid' | 'list'>('grid');
+/**
+ * Memoised and subscribed only to data and the stable actions, so opening Ask,
+ * a dialog or the Inspector never re-renders the header and filters. Only
+ * <Results> follows the open record, and only to mark its tile.
+ */
+export const LibraryView = memo(function LibraryView() {
+  const { assets, now } = useConsoleData();
+  const { inspect, setIngestOpen } = useConsoleActions();
+  const [filters, setFilters] = useState<LibraryFilters>(DEFAULT_FILTERS);
+  const [sort, setSort] = useState<SortOrder>('newest');
+  const [layout, setLayoutState] = useState<Layout>(readLayout);
+  const [limit, setLimit] = useState(PAGE);
 
-  const sites = sitesOf(assets);
-  const pool = source === 'reference' ? assets.filter((a) => a.collection === 'reference') : fieldAssets(assets);
-
-  const filtered = useMemo(
-    () =>
-      pool.filter((a) => {
-        if (type !== 'all' && a.resourceType !== type) return false;
-        if (category !== 'all' && a.finding?.category !== category) return false;
-        if (severity !== 'all' && a.finding?.severity !== severity) return false;
-        if (site !== 'all' && a.site !== site) return false;
-        if (source !== 'all' && source !== 'reference' && a.source !== source) return false;
-        return matchesText(a, query);
-      }),
-    [pool, type, category, severity, site, source, query],
-  );
-
-  const activeFilters = [type !== 'all', category !== 'all', severity !== 'all', site !== 'all', source !== 'all', query !== ''].filter(Boolean).length;
-  const clear = () => {
-    setQuery('');
-    setType('all');
-    setCategory('all');
-    setSeverity('all');
-    setSite('all');
-    setSource('all');
+  const patch = useCallback((next: Partial<LibraryFilters>) => {
+    setFilters((prev) => ({ ...prev, ...next }));
+    setLimit(PAGE);
+  }, []);
+  const clear = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+    setLimit(PAGE);
+  }, []);
+  const setLayout = (next: Layout) => {
+    setLayoutState(next);
+    try {
+      window.localStorage.setItem(LAYOUT_STORAGE_KEY, next);
+    } catch {
+      /* storage unavailable — the choice still applies for this visit */
+    }
   };
 
+  const field = useMemo(() => fieldAssets(assets), [assets]);
+  const sites = useMemo(() => sitesOf(assets), [assets]);
+  const pool = useMemo(() => poolFor(assets, filters.source), [assets, filters.source]);
+  const results = useMemo(() => sortAssets(pool.filter((a) => matches(a, filters)), sort), [pool, filters, sort]);
+  const facets = useMemo(() => facetCounts(pool, filters), [pool, filters]);
+  const visible = useMemo(() => results.slice(0, limit), [results, limit]);
+  const sampleTimes = useMemo(() => hasSampleTimes(field), [field]);
+
+  // Share the result order so the Inspector's ← / → follow exactly this view. The mosaic
+  // adds the on-screen order of the rendered page on top (see library/sequence).
+  useEffect(() => {
+    publishLibrarySequence(results.map((a) => a.id));
+  }, [results]);
+  useEffect(() => () => publishLibrarySequence([]), []);
+
+  const open = useCallback((asset: MediaAsset) => inspect(asset.id), [inspect]);
+  const more = useCallback(() => setLimit((l) => l + PAGE), []);
+  const toggleSeverity = (s: Severity) =>
+    patch({ severities: filters.severities.includes(s) ? filters.severities.filter((x) => x !== s) : [...filters.severities, s] });
+
+  const active = activeFilterCount(filters);
+  const photos = field.filter((a) => a.resourceType === 'image').length;
+  const anySeverity = filters.severities.length > 0;
+
   return (
-    <div className="space-y-5">
+    <div>
       <ViewHeader
         title="Library"
-        subtitle={`${fieldAssets(assets).length} field captures · every thumbnail, crop and preview rendered by Cloudinary`}
+        subtitle={
+          <>
+            <span className="num">{field.length}</span> field captures · <span className="num">{photos}</span> photos ·{' '}
+            <span className="num">{field.length - photos}</span> videos across <span className="num">{sites.length}</span> sites. Every frame, crop and
+            preview is rendered by Cloudinary.
+            {sampleTimes && ' Sample capture times are relative to now.'}
+          </>
+        }
         actions={
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIngestOpen(true)}>
             <CloudUpload className="h-3.5 w-3.5" /> Ingest or sync
@@ -77,140 +121,165 @@ export function LibraryView() {
         }
       />
 
-      <div className="panel space-y-3 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="relative min-w-[220px] flex-1">
-            <span className="sr-only">Filter library</span>
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter by file, site, tag, finding ID…"
-              className="input pl-8"
+      {/* Controls stay reachable while scrolling a large library (desktop). */}
+      <div className="mt-5 bg-canvas lg:sticky lg:top-[52px] lg:z-20 lg:mt-1 lg:pb-3 lg:pt-4">
+        <div className="panel">
+          <div className="flex flex-wrap items-center gap-2 p-2">
+            <label className="relative min-w-[220px] flex-1">
+              <span className="sr-only">Filter library</span>
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
+              <input
+                value={filters.query}
+                onChange={(e) => patch({ query: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && filters.query) {
+                    e.stopPropagation();
+                    patch({ query: '' });
+                  }
+                }}
+                placeholder="Search file, finding ID, site, tag…"
+                className="input pl-8 pr-8"
+                spellCheck={false}
+              />
+              {filters.query && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => patch({ query: '' })}
+                  className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-[5px] text-ink-3 hover:bg-raised hover:text-ink"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </label>
+            <Segmented<TypeFilter>
+              ariaLabel="Media type"
+              value={filters.type}
+              onChange={(type) => patch({ type })}
+              options={[
+                { value: 'all', label: <>All <Count n={facets.type.all} /></> },
+                { value: 'image', label: <><ImageIcon className="h-3.5 w-3.5" />Photos <Count n={facets.type.image} /></> },
+                { value: 'video', label: <><Film className="h-3.5 w-3.5" />Videos <Count n={facets.type.video} /></> },
+              ]}
             />
-          </label>
-          <Segmented
-            ariaLabel="Media type"
-            value={type}
-            onChange={setType}
-            options={[
-              { value: 'all', label: 'All' },
-              { value: 'image', label: <><ImageIcon className="h-3.5 w-3.5" />Photos</> },
-              { value: 'video', label: <><Film className="h-3.5 w-3.5" />Videos</> },
-            ]}
-          />
-          <Segmented
-            ariaLabel="Layout"
-            value={layout}
-            onChange={setLayout}
-            options={[
-              { value: 'grid', label: <LayoutGrid className="h-3.5 w-3.5" />, title: 'Grid' },
-              { value: 'list', label: <Rows3 className="h-3.5 w-3.5" />, title: 'List' },
-            ]}
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select className="input h-8 w-auto text-[12.5px]" value={category} onChange={(e) => setCategory(e.target.value as 'all' | Category)} aria-label="Category">
-            <option value="all">All categories</option>
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {CATEGORY_LABEL[c]}
-              </option>
-            ))}
-          </select>
-          <select className="input h-8 w-auto text-[12.5px]" value={severity} onChange={(e) => setSeverity(e.target.value as 'all' | Severity)} aria-label="Severity">
-            <option value="all">All severities</option>
-            {SEVERITIES.map((s) => (
-              <option key={s} value={s}>
-                {titleCase(s)}
-              </option>
-            ))}
-          </select>
-          <select className="input h-8 w-auto text-[12.5px]" value={site} onChange={(e) => setSite(e.target.value)} aria-label="Site">
-            <option value="all">All sites</option>
-            {sites.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <select className="input h-8 w-auto text-[12.5px]" value={source} onChange={(e) => setSource(e.target.value as SourceFilter)} aria-label="Source">
-            <option value="all">All sources</option>
-            <option value="sample">Sample dataset</option>
-            <option value="upload">Uploaded here</option>
-            <option value="sync">Synced from Cloudinary</option>
-            <option value="reference">Cloudinary sample assets</option>
-          </select>
-          <span className="num ml-auto font-mono text-[11.5px] text-ink-3">
-            {filtered.length} of {pool.length}
-          </span>
-          {activeFilters > 0 && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={clear}>
-              <X className="h-3.5 w-3.5" /> Clear
-            </button>
-          )}
+            <select className={SELECT} value={sort} onChange={(e) => setSort(e.target.value as SortOrder)} aria-label="Sort">
+              {(Object.keys(SORT_LABEL) as SortOrder[]).map((o) => (
+                <option key={o} value={o}>
+                  {SORT_LABEL[o]}
+                </option>
+              ))}
+            </select>
+            <Segmented<Layout>
+              ariaLabel="Layout"
+              value={layout}
+              onChange={setLayout}
+              options={[
+                { value: 'grid', label: <LayoutGrid className="h-3.5 w-3.5" />, title: 'Mosaic' },
+                { value: 'list', label: <Rows3 className="h-3.5 w-3.5" />, title: 'List' },
+              ]}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line px-2 py-2">
+            <div role="group" aria-label="Severity" className="flex flex-wrap items-center gap-1">
+              {SEVERITIES.map((s) => {
+                const on = filters.severities.includes(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleSeverity(s)}
+                    className={cn(
+                      'inline-flex h-7 items-center gap-2 rounded-[6px] border px-2.5 text-[12.5px] font-medium transition-colors',
+                      on ? 'border-line-strong bg-raised text-ink' : 'border-transparent hover:bg-raised hover:text-ink',
+                      !on && (anySeverity ? 'text-ink-3' : 'text-ink-2'),
+                    )}
+                  >
+                    <SeverityDot severity={s} className={cn(anySeverity && !on && 'opacity-50')} />
+                    {titleCase(s)}
+                    <span className={cn('num font-mono text-[11px]', on ? 'text-ink' : 'text-ink-3')}>{facets.severity[s]}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <span aria-hidden className="hidden h-4 w-px bg-line md:block" />
+            <select
+              className={SELECT}
+              value={filters.category}
+              onChange={(e) => patch({ category: e.target.value as 'all' | Category })}
+              aria-label="Category"
+            >
+              <option value="all">All categories</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {CATEGORY_LABEL[c]} ({facets.category[c]})
+                </option>
+              ))}
+            </select>
+            <select className={SELECT} value={filters.site} onChange={(e) => patch({ site: e.target.value })} aria-label="Site">
+              <option value="all">All sites</option>
+              {sites.map((s) => (
+                <option key={s} value={s}>
+                  {s} ({facets.site[s] ?? 0})
+                </option>
+              ))}
+            </select>
+            <select
+              className={SELECT}
+              value={filters.source}
+              onChange={(e) => patch({ source: e.target.value as SourceFilter })}
+              aria-label="Source"
+            >
+              {(Object.keys(SOURCE_LABEL) as SourceFilter[]).map((s) => (
+                <option key={s} value={s}>
+                  {SOURCE_LABEL[s]}
+                </option>
+              ))}
+            </select>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="font-mono text-[11px] text-ink-3" aria-live="polite">
+                <span className="num text-ink-2">{results.length}</span> of <span className="num">{pool.length}</span>
+              </span>
+              {active > 0 && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={clear}>
+                  <X className="h-3.5 w-3.5" /> Clear
+                  <span className="num font-mono text-[10.5px] text-ink-3">{active}</span>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="panel flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <p className="text-[14px] font-medium">No media matches these filters</p>
-          <p className="text-[13px] text-ink-3">Try fewer filters, or ingest new captures into Cloudinary.</p>
-          <button type="button" className="btn btn-secondary btn-sm mt-2" onClick={clear}>
-            Clear filters
-          </button>
-        </div>
-      ) : layout === 'grid' ? (
-        <LayoutGroup>
-          <motion.div layout className="grid grid-cols-1 gap-x-2 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-            <AnimatePresence mode="popLayout">
-              {filtered.map((asset) => (
-                <AssetCard key={asset.id} asset={asset} now={now} onOpen={(a) => inspect(a.id)} selected={inspectId === asset.id} />
-              ))}
-            </AnimatePresence>
-          </motion.div>
-        </LayoutGroup>
-      ) : (
-        <div className="panel overflow-x-auto">
-          <table className="w-full min-w-[820px] text-left text-[13px]">
-            <thead>
-              <tr className="border-b border-line">
-                {['Media', 'Finding', 'Severity', 'Category', 'Site', 'Captured', 'Original'].map((h) => (
-                  <th key={h} className="label px-3 py-2.5 font-normal">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {filtered.map((asset) => (
-                <tr key={asset.id} className="cursor-pointer transition-colors hover:bg-raised" onClick={() => inspect(asset.id)}>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-3">
-                      <span className="relative h-10 w-16 shrink-0 overflow-hidden rounded-[6px] border border-line bg-raised">
-                        <CloudImage src={thumbUrl(asset, 128, 80)} alt="" className="h-full w-full object-cover" />
-                      </span>
-                      <span className="font-mono text-[11.5px] text-ink-2">{asset.fileName}</span>
-                    </div>
-                  </td>
-                  <td className="max-w-[280px] truncate px-3 py-2">
-                    <button type="button" className="text-left hover:underline" onClick={() => inspect(asset.id)}>
-                      {asset.finding?.title ?? asset.title}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2">{asset.finding ? <SeverityBadge severity={asset.finding.severity} /> : <span className="text-ink-3">—</span>}</td>
-                  <td className="px-3 py-2">{asset.finding ? <CategoryTag category={asset.finding.category} /> : <span className="text-ink-3">—</span>}</td>
-                  <td className="px-3 py-2 text-ink-2">{asset.site}</td>
-                  <td className="num px-3 py-2 font-mono text-[11.5px] text-ink-3">{formatDateTime(asset.capturedAt)}</td>
-                  <td className="num px-3 py-2 font-mono text-[11.5px] text-ink-3">
-                    {asset.format.toUpperCase()} {formatBytes(asset.bytes)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="mt-4 space-y-4 lg:mt-1">
+        {results.length === 0 ? (
+          <LibraryEmpty summary={describeFilters(filters)} total={pool.length} onClear={clear} onIngest={() => setIngestOpen(true)} />
+        ) : (
+          <Results layout={layout} assets={visible} now={now} onOpen={open} />
+        )}
+        {results.length > visible.length && <LoadMore key={limit} remaining={results.length - visible.length} page={PAGE} onMore={more} />}
+      </div>
     </div>
   );
+});
+
+/**
+ * The only part of the Library that follows the open record: it marks the
+ * selected tile, whose media morphs into the Inspector (the tile must re-render
+ * in the same commit as the Inspector mounts for the shared layout to hand
+ * off). Grid and list are memoised, so Ask or a dialog opening re-renders this
+ * wrapper and nothing below it.
+ */
+function Results({ layout, assets, now, onOpen }: { layout: Layout; assets: MediaAsset[]; now: number; onOpen: (asset: MediaAsset) => void }) {
+  const { inspectId } = useConsoleUi();
+  return layout === 'grid' ? (
+    <LibraryGrid assets={assets} now={now} selectedId={inspectId} onOpen={onOpen} onIntent={warmInspector} />
+  ) : (
+    <LibraryList assets={assets} now={now} selectedId={inspectId} onOpen={onOpen} onIntent={warmInspector} />
+  );
+}
+
+function Count({ n }: { n: number }) {
+  return <span className="num font-mono text-[10.5px] text-ink-3">{n}</span>;
 }

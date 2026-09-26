@@ -14,12 +14,19 @@ import type { MediaAsset } from '@/lib/types';
  * region, face landmarks) are fetched live and shown separately.
  *
  * Capture times are stored as offsets and materialised against the viewer's
- * clock so "today" and "this week" queries stay meaningful. The CCTV clip keeps
- * the timestamp burned into its footage.
+ * clock so "today" and "this week" queries stay meaningful; those assets carry
+ * `captureBasis: 'sample-relative'` so the interface can label them as sample
+ * times. The CCTV clip keeps the timestamp burned into its footage
+ * (`captureBasis: 'fixed'`, with the in-frame text in `cameraTime`).
  */
 
-type SampleSpec = Omit<MediaAsset, 'capturedAt' | 'cloudName' | 'source'> & {
+type SampleSpec = Omit<MediaAsset, 'capturedAt' | 'cloudName' | 'source' | 'captureBasis'> & {
   hoursAgo?: number;
+  /**
+   * A fixed capture instant read from the media, with an explicit offset so every viewer
+   * gets the same instant. The camera's time zone is unknown, so the burned-in wall-clock
+   * time is stored as UTC and the in-frame text is kept verbatim in `cameraTime`.
+   */
   fixedAt?: string;
 };
 
@@ -164,7 +171,7 @@ const SAMPLES: SampleSpec[] = [
       severity: 'medium',
       status: 'monitoring',
       summary:
-        'Through-truss rail bridge seen from the river bank with a passenger train crossing. The lower chord, diagonals and bracing show a brown weathered finish consistent with coating breakdown and surface corrosion.',
+        'Deck-truss rail bridge seen from the river bank with a passenger train crossing on top. The lower chord, diagonals and bracing show a brown weathered finish consistent with coating breakdown and surface corrosion.',
       action:
         'Schedule a close-up coating and section-loss survey of the lower chord and connections at the next track possession.',
       region: { x: 0, y: 20, w: 66, h: 40, label: 'COATING LOSS' },
@@ -188,12 +195,12 @@ const SAMPLES: SampleSpec[] = [
     collection: 'field',
     finding: {
       id: 'VO-1039',
-      title: 'Access panel removed, cistern and pipework exposed',
+      title: 'Access panel removed, plumbing exposed',
       category: 'facilities',
       severity: 'medium',
       status: 'open',
       summary:
-        'The boxing beside the toilet is open: the access panel is missing, exposing the concealed cistern frame and pipework. Building materials and a mop are left in the corner.',
+        'The tiled boxing beside the toilet is open: a section of the panel is missing, exposing a white plumbing unit (it looks like a macerator pump) and pipework behind it. Building materials and a mop are left in the corner.',
       action: 'Refit the access panel after the plumbing check, clear the stored materials and return the washroom to service.',
       region: { x: 36, y: 36, w: 21, h: 25, label: 'PANEL REMOVED' },
     },
@@ -249,7 +256,7 @@ const SAMPLES: SampleSpec[] = [
       severity: 'low',
       status: 'open',
       summary:
-        'Intake photo of power tools: circular saw, router, drill, belt sander, mitre saw and drill press. At 328 × 217 px no serial plate or condition detail can be read.',
+        'Intake photo of power tools, including a circular saw, router, drill, belt sander, mitre saw and drill press; others are cut off at the frame edge. At 328 × 217 px no serial plate or condition detail can be read.',
       action:
         'Re-photograph each tool with its serial plate visible. Until then, use the AI-upscaled copy for identification only — it is not evidence.',
     },
@@ -308,7 +315,7 @@ const SAMPLES: SampleSpec[] = [
       summary:
         'Rigid box truck photographed at check-in with the driver in the cab and a crew member alongside. The registration plate, fleet livery and front tyres are visible; no body damage is apparent on this side.',
       action: 'No action. Redact the plate and faces before sharing outside the fleet team.',
-      region: { x: 85, y: 81, w: 9, h: 9, label: 'PLATE' },
+      region: { x: 85, y: 85, w: 7, h: 11, label: 'PLATE' },
     },
   },
   {
@@ -349,12 +356,12 @@ const SAMPLES: SampleSpec[] = [
     bytes: 7744493,
     posterOffset: 3,
     fileName: 'walkthrough_line_c.mp4',
-    title: 'Plant floor walkthrough · Line C',
+    title: 'Line C main aisle · site montage',
     site: 'Plant 2',
     zone: 'Line C',
     hoursAgo: 44,
     capturedBy: 'Production supervisor',
-    tags: ['plant', 'production', 'walkway', 'housekeeping', 'conveyor', 'walkthrough'],
+    tags: ['plant', 'production', 'walkway', 'housekeeping', 'barrier', 'conveyor', 'montage'],
     collection: 'field',
     finding: {
       id: 'VO-1033',
@@ -363,9 +370,10 @@ const SAMPLES: SampleSpec[] = [
       severity: 'low',
       status: 'resolved',
       summary:
-        'Walkthrough along the main aisle of a production hall. The green walkway is clear, hazard-striped barriers separate the work cells and overhead conveyors are running.',
-      action: 'No action. Keep as the housekeeping baseline for Line C.',
-      region: { x: 55, y: 55, w: 28, h: 44, label: 'WALKWAY CLEAR' },
+        'At 3 s (the frame kept as the record) the clip shows the main aisle of a production hall: the green walkway is clear, yellow-and-black striped rails and red-and-white posts separate the work cells, and overhead conveyor hooks line the right-hand side. The rest of the clip is a montage of short cuts (other shop floors, a yard of wrapped coils, a function room, a boardroom, a corridor, a fabrication yard, a warehouse, a hangar and staff portraits), not a continuous walkthrough of Line C.',
+      action:
+        'No action. Keep the 3 s frame as the housekeeping baseline for Line C; record a continuous walkthrough for a full-aisle record.',
+      region: { x: 30, y: 55, w: 40, h: 45, label: 'WALKWAY CLEAR' },
     },
   },
   {
@@ -379,12 +387,25 @@ const SAMPLES: SampleSpec[] = [
     duration: 90.8,
     posterOffset: 3,
     fileName: 'VID_0922_1712.mp4',
-    title: 'Laydown yard sweep · pipelayer fleet',
+    title: 'Laydown yard sweep · plant fleet',
     site: 'Central Depot',
     zone: 'Laydown yard 3',
     hoursAgo: 90,
     capturedBy: 'Plant & equipment',
-    tags: ['pipelayer', 'sideboom', 'heavy-equipment', 'machinery', 'yard', 'fleet', 'equipment'],
+    tags: [
+      'pipelayer',
+      'sideboom',
+      'dozer',
+      'bulldozer',
+      'crane',
+      'mixer-truck',
+      'tipper-truck',
+      'heavy-equipment',
+      'machinery',
+      'yard',
+      'fleet',
+      'equipment',
+    ],
     collection: 'field',
     finding: {
       id: 'VO-1024',
@@ -392,7 +413,8 @@ const SAMPLES: SampleSpec[] = [
       category: 'equipment',
       severity: 'low',
       status: 'open',
-      summary: 'Pan across a laydown yard holding a fleet of tracked pipelayers (sidebooms) parked in rows on unsurfaced ground.',
+      summary:
+        'Sweep across a laydown yard on unsurfaced ground: tracked pipelayers (sidebooms) parked in rows, then a truck-mounted crane, a line of tracked dozers, rough-terrain cranes, concrete mixer trucks, a tracked screening plant and tipper trucks.',
       action: 'Reconcile the units in frame with the fleet register and log any machine without a visible asset number.',
       region: { x: 0, y: 48, w: 100, h: 36, label: 'PIPELAYERS' },
     },
@@ -421,7 +443,7 @@ const SAMPLES: SampleSpec[] = [
       severity: 'medium',
       status: 'open',
       summary:
-        'MIG welding on a steel fabrication. The welder wears an auto-darkening helmet, gloves and a jacket, and a fume-extraction hood is positioned overhead. A gas cylinder stands within about a metre of the arc.',
+        'MIG welding on a steel fabrication. The welder wears a welding helmet, gloves and a jacket, and a fume-extraction hood is positioned overhead. A gas cylinder stands just behind the welder, close to the work.',
       action: 'Confirm the hot-work permit and fire watch, and check the cylinder is chained upright and shielded from spatter.',
       region: { x: 14, y: 0, w: 36, h: 95, label: 'HOT WORK' },
     },
@@ -436,11 +458,13 @@ const SAMPLES: SampleSpec[] = [
     bytes: 645535,
     duration: 10,
     posterOffset: 1,
-    fileName: 'CAM06_20251003_034852.mp4',
+    fileName: 'CAM06_20251003_034849.mp4',
     title: 'Overnight CCTV · Pastry 06 production',
     site: 'Central Kitchen',
     zone: 'Pastry 06',
-    fixedAt: '2025-10-03T03:48:52',
+    // First frame reads "10-03-2025 Fri 03:48:49" (camera clock, zone unknown); stored as UTC.
+    fixedAt: '2025-10-03T03:48:49Z',
+    cameraTime: '2025-10-03 03:48:49',
     capturedBy: 'CCTV · camera 06',
     tags: ['cctv', 'kitchen', 'overnight', 'production', 'monitoring'],
     collection: 'field',
@@ -498,6 +522,7 @@ export function buildSampleAssets(now: number): MediaAsset[] {
     ...spec,
     cloudName: DEMO_CLOUD,
     source: 'sample' as const,
+    captureBasis: fixedAt ? ('fixed' as const) : ('sample-relative' as const),
     capturedAt: fixedAt ? new Date(fixedAt).toISOString() : new Date(now - (hoursAgo ?? 0) * HOUR).toISOString(),
   }));
 }

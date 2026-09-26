@@ -7,6 +7,7 @@ import {
   pipelineComponents,
   pipelineIntegrity,
   pipelineUrl,
+  smartCropWidth,
   stampComponent,
   stampPosition,
   str,
@@ -36,7 +37,8 @@ export function sdkTransformation(step: PipelineStep, asset: MediaAsset): SdkTra
         aspect_ratio: aspect(p.aspect),
         crop: 'fill',
         gravity: str(p.gravity, 'auto').replace(/[^a-z:]/g, '') || 'auto',
-        width: num(p.width, 1600, 200, 3200),
+        // Same no-upscale cap as the rendered URL (see smartCropWidth).
+        width: smartCropWidth(p, asset),
       };
     case 'resize':
       return { crop: video ? 'scale' : 'limit', width: num(p.width, 960, 160, 3840) };
@@ -123,6 +125,46 @@ export function sdkTransformations(steps: PipelineStep[], asset: MediaAsset): Sd
   return activeSteps(steps, asset)
     .map((s) => sdkTransformation(s, asset))
     .filter((t): t is SdkTransformation => t !== null);
+}
+
+const ratio = (value: string): [number, number] => {
+  const [w, h] = value.split(':').map(Number);
+  return w > 0 && h > 0 ? [w, h] : [16, 9];
+};
+
+/**
+ * Pixel size of a still pipeline's output, following its geometry steps in
+ * order (smart crop, resize, generative fill). The exported CldImage uses it
+ * for `width`/`height` so next/image reserves the rendered aspect ratio, not
+ * the original's. AI steps that resample (e_upscale) are not modelled.
+ */
+export function renderedSize(steps: PipelineStep[], asset: MediaAsset): { width: number; height: number } {
+  let width = asset.width > 0 ? asset.width : 1600;
+  let height = asset.height > 0 ? asset.height : 900;
+  for (const step of activeSteps(steps, asset)) {
+    const p = step.params;
+    if (step.kind === 'smart_crop') {
+      const [aw, ah] = ratio(aspect(p.aspect));
+      width = smartCropWidth(p, asset);
+      height = (width * ah) / aw;
+    } else if (step.kind === 'resize') {
+      const max = num(p.width, 960, 160, 3840);
+      if (width > max) {
+        height = (height * max) / width;
+        width = max;
+      }
+    } else if (step.kind === 'gen_fill') {
+      const [aw, ah] = ratio(aspect(p.aspect));
+      width = num(p.width, 1600, 200, 3200);
+      height = (width * ah) / aw;
+    }
+  }
+  return { width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) };
+}
+
+/** The `width` prop of the exported CldImage: the rendered width, at most 1600 px. */
+export function cldImageWidth(steps: PipelineStep[], asset: MediaAsset): number {
+  return Math.min(renderedSize(steps, asset).width, 1600);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -291,10 +333,12 @@ export function FieldClip() {
 }`;
   } else {
     const spec = cldImageSpec(steps, asset);
+    const size = renderedSize(steps, asset);
+    const width = cldImageWidth(steps, asset);
     const lines = [
       `src="${asset.publicId}"`,
-      `width={${Math.min(asset.width, 1600)}}`,
-      `height={${Math.round((Math.min(asset.width, 1600) / asset.width) * asset.height)}}`,
+      `width={${width}}`,
+      `height={${Math.max(1, Math.round((width / size.width) * size.height))}}`,
       `alt="${(asset.finding?.title ?? asset.title).replace(/"/g, '&quot;')}"`,
       `config={{ cloud: { cloudName: '${asset.cloudName}' } }}`,
       ...Object.entries(spec.props).map(([k, v]) => jsxProp(k, v)),

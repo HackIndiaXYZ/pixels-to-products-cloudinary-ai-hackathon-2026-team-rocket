@@ -41,7 +41,7 @@ export function FrameStrip({
             title={`Seek to ${formatDuration(t)} (Cloudinary so_${t})`}
           >
             <CloudImage src={frameUrl(asset, t, 320, 180)} alt={`Frame at ${formatDuration(t)}`} className="h-full w-full object-cover" />
-            <span className="num absolute bottom-1 left-1 rounded-[4px] bg-canvas/85 px-1 font-mono text-[9.5px] text-ink-2">
+            <span className="num absolute bottom-1 left-1 rounded-[4px] bg-canvas/85 px-1 font-mono text-[10.5px] text-ink-2">
               {formatDuration(t)}
             </span>
           </button>

@@ -18,6 +18,28 @@ const BACKGROUND_PROMPTS: Array<{ label: string; prompt: string; audience: 'oper
 
 const DELIVERY: StepKind[] = ['auto_quality', 'auto_format'];
 
+/** Record tags that describe a condition, place or process rather than an object you could point at. */
+const NOT_AN_OBJECT =
+  /hazard|resolution|infrastructure|construction|housekeeping|maintenance|inventory|equipment|quality|monitoring|sample|production|overnight|electrification|electrical|aerial|drone|cctv|work-at-height|fleet|montage|repair|intake|pre-trip|check-in|receiving|stores|product|video|collapse|crack|corrosion|rust|debris|void|cleaning|demolition|welding|hot-work|lobby|ppe|washroom|plant|kitchen|walkway|people/;
+
+/**
+ * Example objects for this photo's prompts, from its own record tags, so the
+ * placeholders suggest something in this frame instead of one photo's mop.
+ */
+function objectHints(asset: MediaAsset): string[] {
+  return asset.tags.filter((t) => !NOT_AN_OBJECT.test(t)).map((t) => t.replace(/-/g, ' '));
+}
+
+/**
+ * Canvas width for generative fill (c_pad) that never upscales the photo: just wide
+ * enough to hold it at its own size in the new aspect ratio, capped at 1600 px.
+ */
+function fillWidth(asset: MediaAsset, aspectValue: string): number {
+  const [aw, ah] = aspectValue.split(':').map(Number);
+  if (!(asset.width > 0 && asset.height > 0 && aw > 0 && ah > 0)) return 1600;
+  return Math.min(1600, Math.max(asset.width, Math.round((asset.height * aw) / ah)));
+}
+
 /** Insert or update a step, keeping delivery steps (q_auto / f_auto) last. */
 export function upsertStep(steps: PipelineStep[], kind: StepKind, params: StepParams): PipelineStep[] {
   const existing = steps.find((s) => s.kind === kind);
@@ -39,13 +61,14 @@ export function GenerativePanel({
   steps: PipelineStep[];
   onChange: (steps: PipelineStep[]) => void;
 }) {
+  // Fields start empty unless the pipeline already has that step (e.g. a preset): then they show its values.
   const current = (kind: StepKind, key: string, fallback = '') => String(steps.find((s) => s.kind === kind)?.params[key] ?? fallback);
   const [bgPrompt, setBgPrompt] = useState(current('gen_background_replace', 'prompt'));
-  const [from, setFrom] = useState(current('gen_replace', 'from', 'mop'));
-  const [to, setTo] = useState(current('gen_replace', 'to', 'yellow wet floor warning sign'));
-  const [recolorObject, setRecolorObject] = useState(current('gen_recolor', 'prompt', 'hard hat'));
+  const [from, setFrom] = useState(current('gen_replace', 'from'));
+  const [to, setTo] = useState(current('gen_replace', 'to'));
+  const [recolorObject, setRecolorObject] = useState(current('gen_recolor', 'prompt'));
   const [recolorColor, setRecolorColor] = useState(current('gen_recolor', 'color', 'FF6A00'));
-  const [removeObject, setRemoveObject] = useState(current('gen_remove', 'prompt', ''));
+  const [removeObject, setRemoveObject] = useState(current('gen_remove', 'prompt'));
   const [fillAspect, setFillAspect] = useState(current('gen_fill', 'aspect', '16:9'));
 
   if (asset.resourceType === 'video') {
@@ -57,6 +80,11 @@ export function GenerativePanel({
   }
 
   const apply = (kind: StepKind, params: StepParams) => onChange(upsertStep(steps, kind, params));
+  const hints = objectHints(asset);
+  const example = (i: number) => {
+    const hint = hints[i] ?? hints[0];
+    return hint ? `e.g. ${hint}` : 'Describe the object';
+  };
 
   return (
     <div className="space-y-4">
@@ -106,9 +134,23 @@ export function GenerativePanel({
 
       <Section title="Replace an object" hint="e_gen_replace">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <input className="input h-8 text-[12.5px]" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Object to replace" maxLength={80} />
+          <input
+            className="input h-8 text-[12.5px]"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            placeholder={example(0)}
+            aria-label="Object to replace"
+            maxLength={80}
+          />
           <span className="text-[12px] text-ink-3">→</span>
-          <input className="input h-8 text-[12.5px]" value={to} onChange={(e) => setTo(e.target.value)} aria-label="Replacement" maxLength={80} />
+          <input
+            className="input h-8 text-[12.5px]"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="Describe the replacement"
+            aria-label="Replacement"
+            maxLength={80}
+          />
         </div>
         <button type="button" className="btn btn-secondary btn-sm" disabled={!from.trim() || !to.trim()} onClick={() => apply('gen_replace', { from, to })}>
           Apply replace
@@ -117,7 +159,14 @@ export function GenerativePanel({
 
       <Section title="Recolour" hint="e_gen_recolor">
         <div className="flex items-center gap-2">
-          <input className="input h-8 text-[12.5px]" value={recolorObject} onChange={(e) => setRecolorObject(e.target.value)} aria-label="Object to recolour" maxLength={80} />
+          <input
+            className="input h-8 text-[12.5px]"
+            value={recolorObject}
+            onChange={(e) => setRecolorObject(e.target.value)}
+            placeholder={example(1)}
+            aria-label="Object to recolour"
+            maxLength={80}
+          />
           <input
             type="color"
             aria-label="Target colour"
@@ -137,7 +186,7 @@ export function GenerativePanel({
             className="input h-8 text-[12.5px]"
             value={removeObject}
             onChange={(e) => setRemoveObject(e.target.value)}
-            placeholder="e.g. mop bucket"
+            placeholder={example(2)}
             aria-label="Object to remove"
             maxLength={80}
           />
@@ -156,7 +205,7 @@ export function GenerativePanel({
               </option>
             ))}
           </select>
-          <button type="button" className="btn btn-secondary btn-sm shrink-0" onClick={() => apply('gen_fill', { aspect: fillAspect, width: 1600 })}>
+          <button type="button" className="btn btn-secondary btn-sm shrink-0" onClick={() => apply('gen_fill', { aspect: fillAspect, width: fillWidth(asset, fillAspect) })}>
             Apply fill
           </button>
         </div>

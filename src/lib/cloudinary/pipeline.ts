@@ -151,17 +151,49 @@ export function stampComponent(p: StepParams, asset: MediaAsset, encode: boolean
   });
 }
 
-/** Replaces {id} {severity} {date} {site} {file} tokens in stamp text. */
+/**
+ * What `{date}` burns in for sample-dataset media. Their capture times are
+ * synthetic (derived from the viewer's clock), so an audit stamp must not
+ * present them as a real capture date.
+ */
+export const SAMPLE_STAMP_DATE = 'SAMPLE';
+
+/** The capture day an audit stamp may burn in: the real day for uploads and synced media, `SAMPLE` for the sample dataset. */
+export function stampDate(asset: MediaAsset): string {
+  if (asset.source === 'sample') return SAMPLE_STAMP_DATE;
+  const captured = new Date(asset.capturedAt);
+  return Number.isNaN(captured.getTime()) ? 'UNDATED' : isoDay(captured);
+}
+
+/**
+ * Replaces {id} {severity} {date} {site} {file} tokens in stamp text.
+ * `{date}` is the capture day, or `SAMPLE` for sample-dataset media (see `stampDate`).
+ */
 export function expandStampText(template: string, asset: MediaAsset): string {
   const finding = asset.finding;
   return template
     .replace(/\{id\}/g, finding?.id ?? asset.id.toUpperCase())
     .replace(/\{severity\}/g, (finding?.severity ?? 'observation').toUpperCase())
-    .replace(/\{date\}/g, isoDay(asset.capturedAt))
+    .replace(/\{date\}/g, stampDate(asset))
     .replace(/\{site\}/g, asset.site)
     .replace(/\{file\}/g, asset.fileName)
     .replace(/[,/]/g, ' ')
     .trim();
+}
+
+/**
+ * Output width of a smart crop: the requested width, capped at the widest crop
+ * of that aspect ratio the original contains, so `c_fill` only ever crops and
+ * downscales — it never upscales. Shared by the URL builder and the code export
+ * so both render the same single component.
+ */
+export function smartCropWidth(p: StepParams, asset: Pick<MediaAsset, 'width' | 'height'>): number {
+  const requested = num(p.width, 1600, 200, 3200);
+  const [aw, ah] = aspect(p.aspect).split(':').map(Number);
+  const { width, height } = asset;
+  if (!(width > 0 && height > 0 && aw > 0 && ah > 0)) return requested;
+  const widest = Math.floor(Math.min(width, (height * aw) / ah));
+  return Math.max(1, Math.min(requested, widest));
 }
 
 export const STEP_DEFINITIONS: Record<StepKind, StepDefinition> = {
@@ -186,11 +218,24 @@ export const STEP_DEFINITIONS: Record<StepKind, StepDefinition> = {
           { value: 'center', label: 'Centre' },
         ],
       },
-      { key: 'width', label: 'Output width', type: 'number', min: 200, max: 3200, step: 100 },
+      {
+        key: 'width',
+        label: 'Max output width',
+        type: 'number',
+        min: 200,
+        max: 3200,
+        step: 100,
+        help: 'Never upscales: capped at the widest crop the original supports.',
+      },
     ],
-    build: (p) =>
-      component({ ar: aspect(p.aspect), c: 'fill', g: str(p.gravity, 'auto').replace(/[^a-z:]/g, '') || 'auto', w: num(p.width, 1600, 200, 3200) }),
-    summarize: (p) => `${aspect(p.aspect)} · g_${str(p.gravity, 'auto')} · ${num(p.width, 1600)}px`,
+    build: (p, ctx) =>
+      component({
+        ar: aspect(p.aspect),
+        c: 'fill',
+        g: str(p.gravity, 'auto').replace(/[^a-z:]/g, '') || 'auto',
+        w: smartCropWidth(p, ctx.asset),
+      }),
+    summarize: (p) => `${aspect(p.aspect)} · g_${str(p.gravity, 'auto')} · ≤${num(p.width, 1600, 200, 3200)}px`,
   },
   resize: {
     kind: 'resize',
@@ -246,7 +291,7 @@ export const STEP_DEFINITIONS: Record<StepKind, StepDefinition> = {
   privacy_faces: {
     kind: 'privacy_faces',
     label: 'Redact faces',
-    description: 'Cloudinary detects faces and pixelates or blurs them before media is shared.',
+    description: 'Pixelates or blurs the faces Cloudinary detects before media is shared. Frames with no detections are unchanged.',
     group: 'Privacy',
     integrity: 'evidence',
     appliesTo: ['image'],
@@ -283,7 +328,7 @@ export const STEP_DEFINITIONS: Record<StepKind, StepDefinition> = {
         label: 'Text',
         type: 'text',
         placeholder: '{id} · {severity} · {date}',
-        help: 'Tokens: {id} {severity} {date} {site} {file}',
+        help: 'Tokens: {id} {severity} {date} {site} {file}. {date} reads SAMPLE on sample-dataset media.',
       },
       { key: 'position', label: 'Position', type: 'select', options: POSITIONS },
       { key: 'size', label: 'Size', type: 'number', min: 12, max: 96, step: 2 },
@@ -673,10 +718,11 @@ export const PRESETS: PipelinePreset[] = [
   {
     id: 'privacy-redaction',
     name: 'Privacy redaction',
-    description: 'Pixelates every detected face before media leaves the team.',
+    description: 'Pixelates the faces Cloudinary detects before media leaves the team.',
     resourceType: 'image',
     audience: 'operations',
-    suggestedFor: ['vo-crew-ppe', 'vo-fleet-checkin'],
+    // Only where Cloudinary actually detects faces (fl_getinfo); the fleet check-in frame returns none.
+    suggestedFor: ['vo-crew-ppe'],
     steps: [
       { kind: 'privacy_faces', params: { mode: 'pixelate', strength: 20 } },
       { kind: 'resize', params: { width: 1600 } },
@@ -687,7 +733,7 @@ export const PRESETS: PipelinePreset[] = [
   {
     id: 'audit-stamp',
     name: 'Audit stamp',
-    description: 'Report-ready frame with the finding ID, severity and capture date burned in.',
+    description: 'Report-ready frame with the finding ID, severity and capture date burned in (SAMPLE on sample-dataset media).',
     resourceType: 'image',
     audience: 'operations',
     steps: [

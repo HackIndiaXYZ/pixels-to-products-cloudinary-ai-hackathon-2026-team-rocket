@@ -1,227 +1,154 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { ArrowRight, CornerDownLeft, FileText, Film, Search, Wand2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { CATEGORY_LABEL, fieldAssets, sitesOf } from '@/lib/analytics';
-import { thumbUrl } from '@/lib/cloudinary/media';
-import { relativeTime } from '@/lib/format';
-import { EXAMPLE_QUERIES, parseQuery, runQuery } from '@/lib/search/query';
-import { CloudImage } from '@/components/media/CloudImage';
-import { Kbd, SeverityBadge } from '@/components/ui/badges';
-import { Dialog } from '@/components/ui/Dialog';
-import { cn } from '@/components/ui/cn';
-import { useConsole } from './store';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
+import { useConsoleActions, useConsoleUi } from './store';
+import { AskBody } from './ask/AskBody';
 
-export function AskPalette() {
-  const { paletteOpen, setPaletteOpen } = useConsole();
-  return (
-    <Dialog
-      open={paletteOpen}
-      onClose={() => setPaletteOpen(false)}
-      title="Ask VisualOps"
-      hideHeader
-      position="top"
-      className="max-w-[720px]"
-    >
-      <PaletteBody />
-    </Dialog>
-  );
+const EASE = [0.16, 1, 0.3, 1] as const;
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** ⌘K / Ctrl+K: the shell's toggle, which must still reach it so it can close Ask. */
+function isToggle(event: { metaKey: boolean; ctrlKey: boolean; key: string }): boolean {
+  return (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
 }
 
-function PaletteBody() {
-  const { assets, now, inspect, setPaletteOpen, reportFor, openInStudio } = useConsole();
-  const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
-  const pool = useMemo(() => fieldAssets(assets), [assets]);
-  const sites = useMemo(() => sitesOf(assets), [assets]);
+/**
+ * Keys pressed inside Ask stay inside Ask. It runs after Ask's own React handlers
+ * (React listens on the document root, registered before any overlay's listener),
+ * so layers underneath that listen on document or window — an open Inspector's
+ * ←/→ stepping and focus trap — never act on them. Only the shell's ⌘K toggle passes.
+ */
+function containKeys(event: ReactKeyboardEvent) {
+  if (isToggle(event)) return;
+  event.stopPropagation();
+  event.nativeEvent.stopImmediatePropagation();
+}
 
-  const parsed = useMemo(() => (query.trim() ? parseQuery(query, sites, now) : null), [query, sites, now]);
-  const result = useMemo(() => (parsed ? runQuery(parsed, pool) : null), [parsed, pool]);
-  const hits = result?.hits ?? [];
+/**
+ * Modal behaviour for the command system: body scroll lock, focus on open,
+ * a complete focus trap, Escape to close (captured, so an open Inspector
+ * underneath is not closed with it) and focus restored to wherever it was before.
+ */
+function useOverlay(open: boolean, onClose: () => void, panelRef: RefObject<HTMLDivElement | null>) {
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
-  const close = () => setPaletteOpen(false);
-  const open = (id: string) => {
-    close();
-    inspect(id);
-  };
+  useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const { overflow } = document.body.style;
+    document.body.style.overflow = 'hidden';
 
-  const chips: string[] = [];
-  if (parsed) {
-    parsed.severities.forEach((s) => chips.push(`severity: ${s}`));
-    parsed.categories.forEach((c) => chips.push(`category: ${CATEGORY_LABEL[c].toLowerCase()}`));
-    parsed.sites.forEach((s) => chips.push(`site: ${s}`));
-    parsed.mediaTypes.forEach((m) => chips.push(`media: ${m === 'image' ? 'photos' : 'videos'}`));
-    parsed.statuses.forEach((s) => chips.push(`status: ${s}`));
-    if (parsed.window) chips.push(`captured: ${parsed.window.label}`);
-  }
-  const keywordChips = result?.keywords.filter((k) => !result.unmatchedKeywords.includes(k)) ?? [];
+    const raf = requestAnimationFrame(() => {
+      const panel = panelRef.current;
+      const target = panel?.querySelector<HTMLElement>('[data-autofocus]') ?? panel;
+      target?.focus({ preventScroll: true });
+    });
 
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setActive((i) => Math.min(i + 1, Math.max(hits.length - 1, 0)));
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setActive((i) => Math.max(i - 1, 0));
-    } else if (event.key === 'Enter' && hits[active]) {
-      event.preventDefault();
-      open(hits[active].asset.id);
-    }
-  };
+    // Capture phase on window: runs before anything else sees the key.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.isComposing) {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      const panel = panelRef.current;
+      if (!panel) return;
+      if (event.key === 'Tab') {
+        // Focus moves only between Ask's own controls, and Tab never reaches a trap
+        // underneath (an open Inspector would otherwise pull focus behind the modal).
+        event.preventDefault();
+        event.stopPropagation();
+        const focusables = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+          (el) => el.tabIndex >= 0 && el.getClientRects().length > 0,
+        );
+        if (!focusables.length) {
+          panel.focus({ preventScroll: true });
+          return;
+        }
+        const index = focusables.indexOf(document.activeElement as HTMLElement);
+        const step = event.shiftKey ? -1 : 1;
+        const next =
+          index < 0 ? focusables[event.shiftKey ? focusables.length - 1 : 0] : focusables[(index + step + focusables.length) % focusables.length];
+        next.focus();
+        return;
+      }
+      // Focus fell out of the panel (its control was removed): keep the key in Ask and
+      // hand focus back to the question, so typing continues there.
+      const target = event.target instanceof Node ? event.target : null;
+      if (!target || !panel.contains(target)) {
+        if (isToggle(event)) return;
+        event.stopPropagation();
+        (panel.querySelector<HTMLElement>('[data-autofocus]') ?? panel).focus({ preventScroll: true });
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('keydown', onKey, true);
+      document.body.style.overflow = overflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true });
+    };
+  }, [open, panelRef]);
+}
+
+/**
+ * Ask VisualOps — the command system and evidence browser.
+ * Toggled by ConsoleShell (⌘K / Ctrl+K and "/") through `paletteOpen`.
+ */
+export function AskPalette() {
+  const { paletteOpen } = useConsoleUi();
+  const { setPaletteOpen } = useConsoleActions();
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  // Only ever set, never cleared: a panel still exiting must not null the ref of the one entering.
+  const setPanel = useCallback((el: HTMLDivElement | null) => {
+    if (el) panelRef.current = el;
+  }, []);
+  const close = useCallback(() => setPaletteOpen(false), [setPaletteOpen]);
+  useOverlay(paletteOpen, close, panelRef);
+
+  // Each opening is a fresh session (new key), so reopening while the previous
+  // panel is still animating out never revives its state.
+  const [session, setSession] = useState({ open: paletteOpen, id: 0 });
+  if (session.open !== paletteOpen) setSession({ open: paletteOpen, id: paletteOpen ? session.id + 1 : session.id });
 
   return (
-    <div className="flex min-h-0 flex-col" onKeyDown={onKeyDown}>
-      <div className="flex items-center gap-3 border-b border-line px-4">
-        <Search className="h-4 w-4 shrink-0 text-signal" />
-        <input
-          data-autofocus
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setActive(0);
-          }}
-          placeholder="Ask anything about your visual data…"
-          aria-label="Ask VisualOps"
-          className="h-14 w-full bg-transparent text-[15px] text-ink placeholder:text-ink-3 focus:outline-none"
-        />
-        <Kbd>esc</Kbd>
-      </div>
-
-      {!parsed ? (
-        <div className="space-y-4 p-4">
-          <div>
-            <div className="label mb-2">Try</div>
-            <ul className="space-y-1">
-              {EXAMPLE_QUERIES.map((q) => (
-                <li key={q}>
-                  <button
-                    type="button"
-                    onClick={() => setQuery(q)}
-                    className="flex w-full items-center justify-between rounded-[8px] px-3 py-2 text-left text-[13.5px] text-ink-2 hover:bg-raised hover:text-ink"
-                  >
-                    “{q}”
-                    <ArrowRight className="h-3.5 w-3.5 text-ink-3" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <p className="text-[12px] leading-relaxed text-ink-3">
-            VisualOps turns your question into explicit filters — severity, category, site, time, media type, status — plus keywords
-            matched against each record’s tags and findings. The interpretation is always shown; nothing is guessed silently.
-          </p>
+    <AnimatePresence>
+      {paletteOpen && (
+        <div key={session.id} className="fixed inset-0 z-50 flex items-start justify-center p-2 sm:px-6 sm:pb-6 sm:pt-[6vh]">
+          <motion.div
+            aria-hidden
+            className="absolute inset-0 bg-canvas/85"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.16, ease: EASE } }}
+            transition={{ duration: 0.26, ease: EASE }}
+            onClick={close}
+          />
+          <motion.div
+            ref={setPanel}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Ask VisualOps"
+            tabIndex={-1}
+            onKeyDown={containKeys}
+            initial={{ opacity: 0, scale: 0.98, y: -8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.99, y: -6, transition: { duration: 0.16, ease: EASE } }}
+            transition={{ duration: 0.26, ease: EASE }}
+            className="relative z-10 flex h-[calc(100dvh-16px)] w-full max-w-[1080px] origin-top flex-col overflow-hidden rounded-[10px] border border-line-strong bg-surface shadow-[0_28px_70px_-28px_rgba(0,0,0,0.75)] outline-none sm:h-[min(86vh,880px)]"
+          >
+            <AskBody onClose={close} />
+          </motion.div>
         </div>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-4 py-2.5">
-            <span className="label mr-1">Understood as</span>
-            {chips.length === 0 && keywordChips.length === 0 && result?.unmatchedKeywords.length === 0 && (
-              <span className="text-[12px] text-ink-3">everything</span>
-            )}
-            {chips.map((c) => (
-              <span key={c} className="chip border-[color-mix(in_oklab,var(--color-signal)_35%,transparent)] text-signal">
-                {c}
-              </span>
-            ))}
-            {keywordChips.map((k) => (
-              <span key={k} className="chip">
-                “{k}”
-              </span>
-            ))}
-            {result?.unmatchedKeywords.map((k) => (
-              <span key={k} className="chip line-through opacity-60" title="No record mentions this">
-                “{k}”
-              </span>
-            ))}
-          </div>
-
-          {result?.relaxed && (
-            <p className="border-b border-line px-4 py-2 text-[12px] text-ink-3">
-              No record mentions {result.unmatchedKeywords.map((k) => `“${k}”`).join(', ')} — showing the {hits.length} records that match the other filters.
-            </p>
-          )}
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-2" role="listbox" aria-label="Results">
-            {hits.length === 0 ? (
-              <div className="px-3 py-10 text-center text-[13px] text-ink-3">
-                No media matches. Try a site name, a severity, or words like “crack”, “rebar”, “wet floor”.
-              </div>
-            ) : (
-              <>
-                {hits.map((hit, i) => {
-                  const { asset } = hit;
-                  return (
-                    <motion.button
-                      key={asset.id}
-                      initial={{ y: 4 }}
-                      animate={{ y: 0 }}
-                      transition={{ duration: 0.15, delay: Math.min(i * 0.02, 0.2) }}
-                      type="button"
-                      role="option"
-                      aria-selected={i === active}
-                      onMouseEnter={() => setActive(i)}
-                      onClick={() => open(asset.id)}
-                      className={cn(
-                        'flex w-full items-center gap-3 rounded-[9px] px-2.5 py-2 text-left',
-                        i === active ? 'bg-raised' : 'hover:bg-raised/60',
-                      )}
-                    >
-                      <span className="relative h-12 w-[76px] shrink-0 overflow-hidden rounded-[6px] border border-line bg-raised">
-                        <CloudImage src={thumbUrl(asset, 152, 96)} alt="" className="h-full w-full object-cover" />
-                        {asset.resourceType === 'video' && <Film className="absolute bottom-1 right-1 h-3 w-3 text-white drop-shadow" />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2">
-                          {asset.finding && <SeverityBadge severity={asset.finding.severity} />}
-                          <span className="truncate font-mono text-[11px] text-ink-3">{asset.fileName}</span>
-                        </span>
-                        <span className="mt-0.5 block truncate text-[13.5px] font-medium">{asset.finding?.title ?? asset.title}</span>
-                        <span className="block truncate text-[12px] text-ink-3">
-                          {asset.site} · {relativeTime(asset.capturedAt, now)}
-                          {hit.matched.length > 0 && <> · matched {hit.matched.map((m) => `“${m}”`).join(', ')}</>}
-                        </span>
-                      </span>
-                      {i === active && <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-ink-3" />}
-                    </motion.button>
-                  );
-                })}
-              </>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5">
-            <span className="num font-mono text-[11px] text-ink-3">
-              {hits.length} of {pool.length} records
-            </span>
-            <div className="flex gap-2">
-              {hits[active] && (
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => {
-                    close();
-                    openInStudio(hits[active].asset.id);
-                  }}
-                >
-                  <Wand2 className="h-3.5 w-3.5" /> Studio
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={!hits.length}
-                onClick={() => {
-                  close();
-                  reportFor(hits.map((h) => h.asset.id));
-                }}
-              >
-                <FileText className="h-3.5 w-3.5" /> Report on these
-              </button>
-            </div>
-          </div>
-        </>
       )}
-    </div>
+    </AnimatePresence>
   );
 }

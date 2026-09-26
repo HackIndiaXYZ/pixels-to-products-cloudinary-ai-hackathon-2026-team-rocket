@@ -4,10 +4,10 @@ import { useState } from 'react';
 import { DEMO_CLOUD, ENV_SETTINGS, isValidCloudName, isValidTag } from '@/lib/cloudinary/config';
 import type { CloudSettings } from '@/lib/types';
 import { Dialog } from '@/components/ui/Dialog';
-import { useConsole } from './store';
+import { useConsoleActions, useConsoleData, useConsoleUi } from './store';
 
 export function SettingsDialog() {
-  const { settingsOpen, setSettingsOpen } = useConsole();
+  const { settingsOpen, setSettingsOpen } = useConsoleUi();
   return (
     <Dialog
       open={settingsOpen}
@@ -22,7 +22,8 @@ export function SettingsDialog() {
 }
 
 function SettingsForm() {
-  const { settings, setSettings, resetSettings, settingsOverridden, setSettingsOpen } = useConsole();
+  const { settings, setSettings, resetSettings, settingsOverridden } = useConsoleData();
+  const { setSettingsOpen } = useConsoleActions();
   const [draft, setDraft] = useState<CloudSettings>(settings);
   const cloudOk = isValidCloudName(draft.cloudName);
   const tagOk = isValidTag(draft.tag);
@@ -40,7 +41,7 @@ function SettingsForm() {
     >
       <label className="block space-y-1">
         <span className="text-[12.5px] text-ink-2">Cloud name</span>
-        <input className="input font-mono" value={draft.cloudName} onChange={(e) => setDraft({ ...draft, cloudName: e.target.value })} autoComplete="off" spellCheck={false} />
+        <input className="input font-mono" value={draft.cloudName} onChange={(e) => setDraft({ ...draft, cloudName: e.target.value })} autoComplete="off" autoCapitalize="none" spellCheck={false} />
         {!cloudOk && <span className="text-[11.5px] text-critical">Letters, numbers, dashes and underscores.</span>}
       </label>
       <label className="block space-y-1">
@@ -51,6 +52,7 @@ function SettingsForm() {
           placeholder="e.g. visualops_unsigned"
           onChange={(e) => setDraft({ ...draft, uploadPreset: e.target.value })}
           autoComplete="off"
+          autoCapitalize="none"
           spellCheck={false}
         />
         <span className="block text-[11.5px] leading-relaxed text-ink-3">
@@ -60,7 +62,7 @@ function SettingsForm() {
       </label>
       <label className="block space-y-1">
         <span className="text-[12.5px] text-ink-2">VisualOps tag</span>
-        <input className="input font-mono" value={draft.tag} onChange={(e) => setDraft({ ...draft, tag: e.target.value })} autoComplete="off" spellCheck={false} />
+        <input className="input font-mono" value={draft.tag} onChange={(e) => setDraft({ ...draft, tag: e.target.value })} autoComplete="off" autoCapitalize="none" spellCheck={false} />
         <span className="block text-[11.5px] text-ink-3">Added to every upload; Sync reads assets carrying it.</span>
       </label>
 
