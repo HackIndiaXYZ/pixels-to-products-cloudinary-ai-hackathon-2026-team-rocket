@@ -139,7 +139,7 @@ export const LibraryView = memo(function LibraryView() {
             <label className="relative min-w-[220px] flex-1">
               <span className="sr-only">Filter library</span>
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
-              <input
+              <input name="query"
                 value={filters.query}
                 onChange={(e) => patch({ query: e.target.value })}
                 onKeyDown={(e) => {
@@ -173,7 +173,7 @@ export const LibraryView = memo(function LibraryView() {
                 { value: 'video', label: <><Film className="h-3.5 w-3.5" />Videos <Count n={facets.type.video} /></> },
               ]}
             />
-            <select className={SELECT} value={sort} onChange={(e) => setSort(e.target.value as SortOrder)} aria-label="Sort">
+            <select name="sort" className={SELECT} value={sort} onChange={(e) => setSort(e.target.value as SortOrder)} aria-label="Sort">
               {(Object.keys(SORT_LABEL) as SortOrder[]).map((o) => (
                 <option key={o} value={o}>
                   {SORT_LABEL[o]}
@@ -215,7 +215,7 @@ export const LibraryView = memo(function LibraryView() {
               })}
             </div>
             <span aria-hidden className="hidden h-4 w-px bg-line md:block" />
-            <select
+            <select name="category"
               className={SELECT}
               value={filters.category}
               onChange={(e) => patch({ category: e.target.value as 'all' | Category })}
@@ -228,7 +228,7 @@ export const LibraryView = memo(function LibraryView() {
                 </option>
               ))}
             </select>
-            <select className={SELECT} value={filters.site} onChange={(e) => patch({ site: e.target.value })} aria-label="Site">
+            <select name="site" className={SELECT} value={filters.site} onChange={(e) => patch({ site: e.target.value })} aria-label="Site">
               <option value="all">All sites</option>
               {sites.map((s) => (
                 <option key={s} value={s}>
@@ -236,7 +236,7 @@ export const LibraryView = memo(function LibraryView() {
                 </option>
               ))}
             </select>
-            <select
+            <select name="source"
               className={SELECT}
               value={filters.source}
               onChange={(e) => patch({ source: e.target.value as SourceFilter })}

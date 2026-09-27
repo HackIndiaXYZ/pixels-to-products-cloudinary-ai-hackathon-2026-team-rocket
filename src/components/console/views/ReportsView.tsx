@@ -142,7 +142,7 @@ export const ReportsView = memo(function ReportsView() {
             <section className="grid grid-cols-2 gap-3">
               <label className="space-y-1.5">
                 <span className="block text-[12.5px] text-ink-2">Min severity</span>
-                <select
+                <select name="minSeverity"
                   className={SELECT}
                   value={reportScope.minSeverity}
                   onChange={(e) => setReportScope({ ...reportScope, minSeverity: e.target.value as Severity })}
@@ -157,7 +157,7 @@ export const ReportsView = memo(function ReportsView() {
               </label>
               <label className="space-y-1.5">
                 <span className="block text-[12.5px] text-ink-2">Captured</span>
-                <select
+                <select name="windowDays"
                   className={SELECT}
                   value={reportScope.windowDays === null ? 'all' : String(reportScope.windowDays)}
                   onChange={(e) => setReportScope({ ...reportScope, windowDays: e.target.value === 'all' ? null : Number(e.target.value) })}

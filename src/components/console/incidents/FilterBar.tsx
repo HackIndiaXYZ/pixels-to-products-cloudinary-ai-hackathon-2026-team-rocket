@@ -83,7 +83,7 @@ export function FilterBar({
 
       <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
         <span className="label hidden w-[58px] shrink-0 sm:block">Scope</span>
-        <select
+        <select name="status"
           className={SELECT}
           value={filters.status}
           onChange={(e) => onChange({ status: e.target.value as StatusFilter })}
@@ -96,7 +96,7 @@ export function FilterBar({
             </option>
           ))}
         </select>
-        <select
+        <select name="category"
           className={SELECT}
           value={filters.category}
           onChange={(e) => onChange({ category: e.target.value as 'all' | Category })}
@@ -109,7 +109,7 @@ export function FilterBar({
             </option>
           ))}
         </select>
-        <select className={SELECT} value={filters.site} onChange={(e) => onChange({ site: e.target.value })} aria-label="Location">
+        <select name="site" className={SELECT} value={filters.site} onChange={(e) => onChange({ site: e.target.value })} aria-label="Location">
           <option value="all">All locations</option>
           {sites.map((s) => (
             <option key={s} value={s}>
@@ -117,7 +117,7 @@ export function FilterBar({
             </option>
           ))}
         </select>
-        <select className={SELECT} value={filters.window} onChange={(e) => onChange({ window: e.target.value })} aria-label="Date">
+        <select name="window" className={SELECT} value={filters.window} onChange={(e) => onChange({ window: e.target.value })} aria-label="Date">
           {WINDOWS.map((w) => (
             <option key={w.value} value={w.value}>
               {w.label}

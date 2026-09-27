@@ -144,7 +144,8 @@ export function ConsoleShell() {
       {/* Top bar — paired with the landing preview's top bar, so entering the console morphs it into place. */}
       <ViewTransition name="console-topbar" share="morph" default="none">
         <header className="sticky top-0 z-40 flex h-[52px] items-center gap-2 border-b border-line bg-canvas/90 px-3 backdrop-blur-md sm:gap-3 sm:px-4">
-          <Link href="/" className="flex shrink-0 items-center rounded-md px-1.5 py-1 transition-colors hover:bg-raised" aria-label="VisualOps home">
+          {/* No prefetch: the console rarely goes back to the landing page, so its styles and payload are not loaded in advance. */}
+          <Link href="/" prefetch={false} className="flex shrink-0 items-center rounded-md px-1.5 py-1 transition-colors hover:bg-raised" aria-label="VisualOps home">
             <Logo />
           </Link>
           <span aria-hidden className="hidden shrink-0 text-line-strong sm:inline">
@@ -270,7 +271,7 @@ export function ConsoleShell() {
                   </p>
                 )}
               </div>
-              <Link href="/" className="flex items-center gap-1 text-[12px] text-ink-3 transition-colors hover:text-ink">
+              <Link href="/" prefetch={false} className="flex items-center gap-1 text-[12px] text-ink-3 transition-colors hover:text-ink">
                 Product story <ArrowUpRight className="h-3 w-3" />
               </Link>
             </div>

@@ -42,12 +42,12 @@ function SettingsForm() {
     >
       <label className="block space-y-1">
         <span className="text-[12.5px] text-ink-2">Cloud name</span>
-        <input className="input font-mono" value={draft.cloudName} onChange={(e) => setDraft({ ...draft, cloudName: e.target.value })} autoComplete="off" autoCapitalize="none" spellCheck={false} />
+        <input name="cloudName" className="input font-mono" value={draft.cloudName} onChange={(e) => setDraft({ ...draft, cloudName: e.target.value })} autoComplete="off" autoCapitalize="none" spellCheck={false} />
         {!cloudOk && <span className="text-[11.5px] text-critical">Letters, numbers, dashes and underscores.</span>}
       </label>
       <label className="block space-y-1">
         <span className="text-[12.5px] text-ink-2">Unsigned upload preset</span>
-        <input
+        <input name="uploadPreset"
           className="input font-mono"
           value={draft.uploadPreset}
           placeholder="e.g. visualops_unsigned"
@@ -63,7 +63,7 @@ function SettingsForm() {
       </label>
       <label className="block space-y-1">
         <span className="text-[12.5px] text-ink-2">VisualOps tag</span>
-        <input className="input font-mono" value={draft.tag} onChange={(e) => setDraft({ ...draft, tag: e.target.value })} autoComplete="off" autoCapitalize="none" spellCheck={false} />
+        <input name="tag" className="input font-mono" value={draft.tag} onChange={(e) => setDraft({ ...draft, tag: e.target.value })} autoComplete="off" autoCapitalize="none" spellCheck={false} />
         <span className="block text-[11.5px] text-ink-3">Added to every upload; Sync reads assets carrying it.</span>
       </label>
 

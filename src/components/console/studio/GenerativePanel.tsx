@@ -93,7 +93,7 @@ export function GenerativePanel({
             apply('gen_background_replace', { prompt: sanitizePrompt(bgPrompt) });
           }}
         >
-          <input
+          <input name="bgPrompt"
             className="input h-8 text-[12.5px]"
             value={bgPrompt}
             onChange={(e) => setBgPrompt(e.target.value)}
@@ -129,7 +129,7 @@ export function GenerativePanel({
 
       <Section title="Replace an object" hint="e_gen_replace">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <input
+          <input name="from"
             className="input h-8 text-[12.5px]"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
@@ -138,7 +138,7 @@ export function GenerativePanel({
             maxLength={80}
           />
           <span className="text-[12px] text-ink-3">→</span>
-          <input
+          <input name="to"
             className="input h-8 text-[12.5px]"
             value={to}
             onChange={(e) => setTo(e.target.value)}
@@ -154,7 +154,7 @@ export function GenerativePanel({
 
       <Section title="Recolour" hint="e_gen_recolor">
         <div className="flex items-center gap-2">
-          <input
+          <input name="recolorObject"
             className="input h-8 text-[12.5px]"
             value={recolorObject}
             onChange={(e) => setRecolorObject(e.target.value)}
@@ -162,7 +162,7 @@ export function GenerativePanel({
             aria-label="Object to recolour"
             maxLength={80}
           />
-          <input
+          <input name="targetColour"
             type="color"
             aria-label="Target colour"
             className="h-8 w-10 shrink-0 cursor-pointer rounded-[6px] border border-line-strong bg-canvas p-0.5"
@@ -177,7 +177,7 @@ export function GenerativePanel({
 
       <Section title="Remove an object" hint="e_gen_remove">
         <div className="flex items-center gap-2">
-          <input
+          <input name="removeObject"
             className="input h-8 text-[12.5px]"
             value={removeObject}
             onChange={(e) => setRemoveObject(e.target.value)}
@@ -193,7 +193,7 @@ export function GenerativePanel({
 
       <Section title="Extend the canvas" hint="b_gen_fill">
         <div className="flex items-center gap-2">
-          <select className="input h-8 text-[12.5px]" value={fillAspect} onChange={(e) => setFillAspect(e.target.value)} aria-label="Aspect ratio">
+          <select name="fillAspect" className="input h-8 text-[12.5px]" value={fillAspect} onChange={(e) => setFillAspect(e.target.value)} aria-label="Aspect ratio">
             {['16:9', '4:3', '1:1', '4:5', '9:16'].map((a) => (
               <option key={a} value={a}>
                 {a}

@@ -287,11 +287,11 @@ function UploadSection() {
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 sm:col-span-2">
           <span className="text-[12px] text-ink-2">Title (optional — defaults to the file name)</span>
-          <input className="input" value={meta.title} onChange={(e) => setMeta({ ...meta, title: e.target.value })} maxLength={120} />
+          <input name="title" className="input" value={meta.title} onChange={(e) => setMeta({ ...meta, title: e.target.value })} maxLength={120} />
         </label>
         <label className="space-y-1">
           <span className="text-[12px] text-ink-2">Site</span>
-          <input className="input" list="ingest-sites" value={meta.site} onChange={(e) => setMeta({ ...meta, site: e.target.value })} maxLength={60} />
+          <input name="site" className="input" list="ingest-sites" value={meta.site} onChange={(e) => setMeta({ ...meta, site: e.target.value })} maxLength={60} />
           <datalist id="ingest-sites">
             {sites.map((s) => (
               <option key={s} value={s} />
@@ -300,7 +300,7 @@ function UploadSection() {
         </label>
         <label className="space-y-1">
           <span className="text-[12px] text-ink-2">Category</span>
-          <select className="input" value={meta.category} onChange={(e) => setMeta({ ...meta, category: e.target.value as Category })}>
+          <select name="category" className="input" value={meta.category} onChange={(e) => setMeta({ ...meta, category: e.target.value as Category })}>
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>
                 {CATEGORY_LABEL[c]}
@@ -310,7 +310,7 @@ function UploadSection() {
         </label>
         <label className="space-y-1">
           <span className="text-[12px] text-ink-2">Severity (leave empty if no issue)</span>
-          <select
+          <select name="severity"
             className="input"
             value={meta.severity ?? ''}
             onChange={(e) => setMeta({ ...meta, severity: (e.target.value || undefined) as Severity | undefined })}
@@ -325,7 +325,7 @@ function UploadSection() {
         </label>
         <label className="space-y-1">
           <span className="text-[12px] text-ink-2">Observation</span>
-          <input className="input" value={meta.note} onChange={(e) => setMeta({ ...meta, note: e.target.value })} maxLength={200} />
+          <input name="note" className="input" value={meta.note} onChange={(e) => setMeta({ ...meta, note: e.target.value })} maxLength={200} />
         </label>
       </div>
 
@@ -353,7 +353,7 @@ function UploadSection() {
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => inputRef.current?.click()}>
           Choose files
         </button>
-        <input
+        <input name="files"
           ref={inputRef}
           type="file"
           accept="image/*,video/*"
@@ -710,7 +710,7 @@ function SyncSection({ primary = false }: { primary?: boolean }) {
           if (syncTag && !running) void runSync();
         }}
       >
-        <input
+        <input name="syncTag"
           className="input font-mono"
           value={syncTag}
           onChange={(e) => setSyncTag(e.target.value.trim())}

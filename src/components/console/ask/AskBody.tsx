@@ -237,7 +237,7 @@ export const AskBody = memo(function AskBody({ onClose }: { onClose: () => void 
       {/* ---- Ask ---------------------------------------------------------- */}
       <div className="relative flex h-16 shrink-0 items-center gap-3 border-b border-line px-4 sm:h-[68px] sm:px-5">
         <Search className={cn('h-[18px] w-[18px] shrink-0 transition-colors duration-200', running ? 'text-signal' : 'text-ink-2')} strokeWidth={2} />
-        <input
+        <input name="query"
           ref={inputRef}
           data-autofocus
           value={query}
