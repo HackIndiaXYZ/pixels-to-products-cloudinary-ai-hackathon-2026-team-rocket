@@ -70,7 +70,7 @@ The AI understanding never overwrites the human classification. The two are stor
   - **auto-tagging** at 0.5 confidence — the detected objects become Cloudinary tags.
 
   The results are written into the asset's contextual metadata (`ai_caption`, `ai_objects`, `ai_tags`, `ai_model`, `analyzed_at`), next to the record keys, which are kept. Every device reads the understanding back from Cloudinary. Videos are not analysed; they keep face and crop signals from `fl_getinfo` on the poster frame.
-- **Real cloud workspace** — with the server configured, the console shows **only** the team's records from Cloudinary (the *cloud* workspace), seeded by `npm run seed:cloudinary`; bundled samples are hidden. Without a configured server, or while the cloud holds no VisualOps record yet, it shows the bundled *sample* workspace on Cloudinary's public `demo` cloud.
+- **Real cloud workspace** — with the server configured, the console shows **only** the team's records from Cloudinary (the *cloud* workspace), seeded by `npm run seed:cloudinary`; bundled samples are hidden. Without a configured server, or while the cloud holds no VisualOps record yet, it shows the bundled *sample* workspace on Cloudinary's public `demo` cloud. A connected console waits until the workspace is read (up to 8 s) before it shows a view, so it never shows the samples first.
 - **Command Center** — the worst open finding first, then:
   - key numbers and capture activity;
   - inspection progress by site;
@@ -82,7 +82,7 @@ The AI understanding never overwrites the human classification. The two are stor
   - original, evidence-enhanced and face-redacted renditions;
   - face detections, video keyframes and a delivery receipt.
 
-  From the Inspector you can remove a record from the workspace. This only takes off the VisualOps tag; the media stays in Cloudinary.
+  From the Inspector you can remove a record you ingested from the workspace. This only takes off the VisualOps tag; the media stays in Cloudinary. Team-seeded sample records are protected: the Inspector shows *Sample record · protected*, and the server refuses to remove them.
 - **Incident Intelligence** — a lead finding, findings grouped by severity, and a clickable category × severity risk matrix. Filters: status, severity, category, site, date and media type.
 - **Studio — Visual AI Pipeline Builder** — transformation steps and presets for operations work. It has:
   - a before/after viewer (slider, side-by-side, zoom);
@@ -107,7 +107,7 @@ We removed playground features that did not serve the operations workflow, inclu
 
 1. **Ingest.** In the console, *Ingest* asks the VisualOps server to sign an upload (`POST /api/cloudinary/sign`). The server:
    - validates the record fields;
-   - pins the VisualOps tag and the signed preset `visualops_uploads`;
+   - pins the VisualOps tag, the signed preset `visualops_uploads` and the allowed photo and video formats (`allowed_formats`);
    - signs the exact parameters with the API secret.
 
    The browser then uploads the file **directly to Cloudinary**; the file bytes never pass through the VisualOps server.
@@ -117,7 +117,7 @@ We removed playground features that did not serve the operations workflow, inclu
    - contextual metadata: the human fields, provenance (`sample-annotation` or `ingest`), capture-time basis and the AI keys.
 
    The key contract is in `src/lib/cloudinary/record-context.ts`. There is no database.
-4. **Read back.** The server queries Cloudinary's **Search API** (`GET /api/assets`, `tags=visualops`, with context and tags) and returns every record. `GET /api/assets?public_id=…` fetches one record by exact public ID. The library, incidents, search and reports all work from these records.
+4. **Read back.** The server queries Cloudinary's **Search API** (`GET /api/assets`, `tags=visualops`, with context and tags) and returns every record, 100 to a page. The plain list is shared for 10 s (per server instance, and by the host's CDN through `s-maxage`), while `GET /api/assets?public_id=…`, which fetches one record by exact public ID, is always read live. The library, incidents, search and reports all work from these records.
 5. **Transform and act.** Every view renders Cloudinary delivery URLs with transformations applied on request. `fl_getinfo` returns face landmarks and the `g_auto` crop as JSON. `HEAD` requests read `Server-Timing` for measured bytes, format, cache status and timing. Reports assemble stamped, redacted evidence frames and export a fingerprinted package.
 
 ## Reports and the SHA-256
@@ -150,7 +150,7 @@ Everything below is live Cloudinary functionality; nothing is simulated.
 | **Optimisation** | `q_auto`, `f_auto`, `vc_auto`, measured from `Server-Timing`; async renders (HTTP 423) are polled | `src/lib/cloudinary/probe.ts` |
 | **SDKs** | The `cloudinary` Node SDK on the server; `next-cloudinary` and Node/Python snippets in the code export (parity checked by `npm run verify:cloudinary`) | `src/lib/server/cloudinary.ts`, `src/lib/cloudinary/codegen.ts` |
 
-**AI Content Analysis quota.** The free plan includes **500 detections a month**. Each analysis spends two (captioning + `coco_v2`), and only images are analysed. The analyze route returns a stored result instead of re-running an analysis, and it is rate-limited per IP (20 analyses per 10 minutes).
+**AI Content Analysis quota.** The free plan includes **500 detections a month**. Each analysis spends two (captioning + `coco_v2`), and only images are analysed. The analyze route never re-runs a stored analysis: an image analysed before gets its stored result. New analyses have a best-effort rate limit per IP (20 requests per 10 minutes, counted by each server instance).
 
 ## API routes
 
@@ -159,11 +159,11 @@ All routes are Next.js route handlers (`src/app/api/**/route.ts`). The API secre
 | Route | Purpose | Guards |
 | --- | --- | --- |
 | `GET /api/cloudinary/config` | Which cloud the server is connected to (public values only) | — |
-| `POST /api/cloudinary/sign` | Signs an upload for the preset `visualops_uploads` | Same-origin, allow-listed fields and values, body size limit, rate limit |
-| `GET /api/assets` | Every VisualOps record from the Search API | Rate limit |
-| `GET /api/assets?public_id=<id>` | One record by exact public ID (it must carry the VisualOps tag) | Strict public-ID validation |
-| `POST /api/assets/[id]/analyze` | Cloudinary AI understanding of one VisualOps image (`{ resourceType: 'image' }`), merged into its context. Returns `{ ai, tags }` | Same-origin, VisualOps tag required, images only, 20 per 10 min per IP; errors 400/403/404/429/502/503 without secrets |
-| `DELETE /api/assets/[id]?resourceType=image\|video` | Removes **only** the VisualOps tag, so the record leaves the workspace but the media stays in Cloudinary | Same-origin, VisualOps tag required, rate limit |
+| `POST /api/cloudinary/sign` | Signs an upload for the preset `visualops_uploads`, limited to photo and video formats (signed `allowed_formats`) | Same-origin, allow-listed fields and values, body size limit, 60 per 10 min per IP |
+| `GET /api/assets` | Every VisualOps record from the Search API; the plain list is shared for 10 s (`s-maxage=10`) | 120 per 10 min per IP |
+| `GET /api/assets?public_id=<id>` | One record by exact public ID (it must carry the VisualOps tag), always read live | Strict public-ID validation, same limit as the list |
+| `POST /api/assets/[id]/analyze` | Cloudinary AI understanding of one VisualOps image (`{ resourceType: 'image' }`), merged into its context. Returns `{ ai, tags }`; an image analysed before gets its stored result (`cached: true`) | Same-origin, VisualOps tag required, images only, 20 per 10 min per IP; errors 400/403/404/413/429/502/503 without secrets |
+| `DELETE /api/assets/[id]?resourceType=image\|video` | Removes **only** the VisualOps tag, so the record leaves the workspace but the media stays in Cloudinary. Team-seeded sample records are protected (403) | Same-origin, VisualOps tag required, 30 per 10 min per IP |
 
 ## Architecture
 
@@ -195,8 +195,8 @@ flowchart LR
   V -->|"renditions, probes, AI signals"| CDN
 ```
 
-- **The secret stays on the server.** Only `src/lib/server/cloudinary.ts` (`import 'server-only'`) reads `CLOUDINARY_API_SECRET`, and only the route handlers import it.
-- **Server routes are guarded.** They are same-origin only and allow-list their inputs. They act only on assets carrying the VisualOps tag, apply a best-effort rate limit, and map Cloudinary errors to safe messages.
+- **The secret stays on the server.** In the app, only `src/lib/server/cloudinary.ts` (`import 'server-only'`) reads `CLOUDINARY_API_SECRET`, and only the route handlers and their server-only helper (`src/app/api/assets/[id]/guards.ts`) import it.
+- **Server routes are guarded.** The routes that change something (sign, analyze, remove) accept only requests from a page on this site: a present `Origin` must name this host, and a request with neither `Origin` nor `Sec-Fetch-Site: same-origin` is refused. The routes allow-list their inputs, act only on assets carrying the VisualOps tag and map Cloudinary errors to safe messages. Every route except `GET /api/cloudinary/config` has a best-effort rate limit per IP, counted by each server instance.
 - **Security headers** (`next.config.ts`) apply to every response:
   - `Content-Security-Policy`:
     - `default-src 'self'`;
@@ -229,6 +229,8 @@ src/
     page.tsx                     Landing page
     console/page.tsx             Console
     privacy/, terms/             Legal pages
+    not-found.tsx                Branded 404 page
+    opengraph-image.jpg          Share image (Open Graph / Twitter card)
     api/cloudinary/config/       GET    — which cloud the server is connected to (public values)
     api/cloudinary/sign/         POST   — signs an upload (API secret on the server)
     api/assets/                  GET    — records from Cloudinary's Search API (?public_id= for one)
@@ -263,7 +265,7 @@ Then, in this order:
 
 1. **Environment** — `cp .env.example .env.local` and fill in your Cloudinary values (see below). Never commit `.env.local`.
 2. **Cloud setup** — `npm run setup:cloudinary` creates the structured metadata VisualOps uses in your cloud.
-3. **Seed the workspace** — `npm run seed:cloudinary` uploads the sample field captures to your cloud, tagged `visualops`. Their team-written annotations are stored with `provenance=sample-annotation`, so the console labels them *Human classified · sample annotation*.
+3. **Seed the workspace** — `npm run seed:cloudinary` copies the sample field captures from Cloudinary's public `demo` cloud into your cloud, tagged `visualops`, and runs AI Content Analysis on the photos (up to two detections each). Their team-written annotations are stored with `provenance=sample-annotation`, so the console labels them *Human classified · sample annotation* and protects them from removal.
 4. **Run** — `npm run dev`.
 
 Without `.env.local` the app still runs, read-only, on the bundled sample workspace on Cloudinary's public `demo` cloud.
@@ -282,8 +284,8 @@ Without `.env.local` the app still runs, read-only, on the bundled sample worksp
 4. **No Resource list needed:** leave the "Resource list" delivery type restricted. VisualOps reads records through the Search API on the server.
 5. **Protect your credits (after deploying):**
    - Settings → **Security** → enable **Strict transformations**.
-   - Add your deployed domain, and `localhost` for development, under **Allowed strict referral domains**.
-   - Only pages served from your own site can then create new derived images, including generative edits and upscales; hot-linked or scripted requests from elsewhere are refused.
+   - Add your deployed domain, and `localhost:3000` for development, under **Allowed strict referral domains**. Cloudinary matches the port too: `localhost` alone does not cover `localhost:3000`.
+   - Only requests that name your site as their referrer can then create new derived images, including generative edits and upscales; hot-linked requests from other sites are refused. A script can forge a referrer, so this deters abuse rather than preventing it.
    - Renditions already created keep working, and the server-side Upload, Admin and Search API calls are unaffected.
 
 ## Environment variables
@@ -320,17 +322,17 @@ npm run build
 npm run start
 ```
 
-VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the server environment variables in the host's settings, not in the repository. Pages are static; the `/api` routes run on demand.
+VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the server environment variables in the host's settings, not in the repository. Pages are static; the `/api` routes run on demand. The record list (`GET /api/assets`) may be reused for up to 10 seconds (`s-maxage=10`).
 
 ## Data and honesty notes
 
 - **Three kinds of facts, always labelled.** *AI detected* (Cloudinary), *Human classified* (ingest, or team-written sample annotation) and *System derived* (computed or measured). The UI and every export keep them apart.
-- **Sample annotations.** The findings of the sample workspace — both the bundled dataset and the seeded cloud workspace — are written by the team and labelled *sample annotation*. Their capture times are relative to your clock, and audit stamps on bundled samples show `SAMPLE` instead of a date.
-- **Cloudinary's AI can be wrong.** Captions, object labels and face detections are machine output with confidence scores, and they are never merged into the human classification. Face detection can miss people, so check a frame before sharing it.
+- **Sample annotations.** The sample media are public images and clips from Cloudinary's `demo` cloud, not captures made by the team, and some keep their original photo credit. Their findings, sites and file names — in both the bundled dataset and the seeded cloud workspace — are written by the team and labelled *sample annotation*. Their capture times are relative to your clock, and audit stamps on bundled samples show `SAMPLE` instead of a date.
+- **Cloudinary's AI can be wrong.** Captions, object labels and face detections are machine output (object labels carry confidence scores), and they are never merged into the human classification. Face detection can miss people, so check a frame before sharing it.
 - **Records you ingest** carry the fields you enter. Their capture time is Cloudinary's upload time.
 - **Delivery savings** include resizing to display size as well as `q_auto`/`f_auto`, and they are labelled that way.
 - **Ask VisualOps** is a transparent parser, not a language model. It shows its interpretation.
-- **Removing a record** takes off the VisualOps tag only; it never deletes media.
+- **Removing a record** takes off the VisualOps tag only; it never deletes media. Team-seeded sample records are protected in the shared workspace; records you ingest can be removed.
 
 ## Team
 
