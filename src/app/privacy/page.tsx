@@ -14,14 +14,18 @@ export default function PrivacyPage() {
           <p className="label">Privacy</p>
           <h1 className="type-display mt-4 text-[44px]">What VisualOps does with your media.</h1>
           <div className="mt-8 space-y-5 text-[16px] leading-relaxed text-ink-2">
-            <p>VisualOps runs in your browser. It has no backend, no accounts and no analytics.</p>
             <p>
-              Media you upload goes directly from your browser to <em>your own</em> Cloudinary cloud through the unsigned upload preset you
-              configure. VisualOps never receives it and never uses a Cloudinary API secret.
+              VisualOps runs in your browser with a small server component. It has no accounts, no database and no analytics.
             </p>
             <p>
-              Uploaded and synced records, and any Cloudinary settings you enter, are stored in this browser’s local storage so the console
-              remembers them. Clearing site data removes them; the media stays in your Cloudinary account.
+              Media you upload goes directly from your browser to the team’s own Cloudinary cloud. When the server is connected, it signs each
+              upload with the Cloudinary API secret held in its environment — the file itself never passes through VisualOps’ server and the
+              secret never reaches the browser. Without a server, uploads use an unsigned upload preset you configure.
+            </p>
+            <p>
+              The record fields you enter (title, site, category, severity, observation) are stored with the media in Cloudinary as tags and
+              contextual metadata, and the server reads them back with Cloudinary’s Search API. This browser’s local storage keeps a copy of
+              records added here and any settings you enter; clearing site data removes that copy, not the media in Cloudinary.
             </p>
             <p>
               The sample dataset is served from Cloudinary’s public demo cloud. Faces in media can be pixelated by Cloudinary

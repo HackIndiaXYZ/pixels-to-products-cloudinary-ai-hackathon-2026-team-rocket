@@ -8,15 +8,16 @@ import { useConsoleActions, useConsoleData, useConsoleUi } from './store';
 
 export function SettingsDialog() {
   const { settingsOpen, setSettingsOpen } = useConsoleUi();
+  const { backend } = useConsoleData();
   return (
     <Dialog
       open={settingsOpen}
       onClose={() => setSettingsOpen(false)}
       title="Cloudinary"
-      description="Where uploads go and what Sync reads. Only public values — VisualOps never asks for an API secret."
+      description="Where uploads go and what the library reads. The browser only ever holds public values — an API secret stays on the server."
       className="max-w-[560px]"
     >
-      <SettingsForm />
+      {backend?.configured ? <ServerConnection /> : <SettingsForm />}
     </Dialog>
   );
 }
@@ -89,5 +90,40 @@ function SettingsForm() {
         </button>
       </div>
     </form>
+  );
+}
+
+/** The server holds the Cloudinary credentials: show the connection, nothing to edit in the browser. */
+function ServerConnection() {
+  const { backend, cloud } = useConsoleData();
+  const { setSettingsOpen } = useConsoleActions();
+  const rows: Array<[string, string]> = [
+    ['Cloud name', backend?.cloudName ?? '—'],
+    ['Uploads', backend?.uploadPreset ? `signed by the server · preset ${backend.uploadPreset}` : 'signed by the server'],
+    ['VisualOps tag', backend?.tag ?? '—'],
+    ['Records in the cloud', cloud.status === 'ready' ? String(cloud.count) : cloud.status === 'loading' ? 'reading…' : cloud.status === 'error' ? 'unavailable' : '—'],
+  ];
+  return (
+    <div className="space-y-4 px-5 py-5">
+      <dl className="divide-y divide-line rounded-[9px] border border-line">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex items-baseline justify-between gap-4 px-3 py-2.5">
+            <dt className="text-[12.5px] text-ink-3">{k}</dt>
+            <dd className="min-w-0 truncate text-right font-mono text-[12px] text-ink">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="rounded-[9px] border border-line bg-raised px-3 py-2.5 text-[12px] leading-relaxed text-ink-3">
+        Configured on the server with <span className="font-mono text-ink-2">CLOUDINARY_CLOUD_NAME</span>,{' '}
+        <span className="font-mono text-ink-2">CLOUDINARY_API_KEY</span>, <span className="font-mono text-ink-2">CLOUDINARY_API_SECRET</span> and{' '}
+        <span className="font-mono text-ink-2">CLOUDINARY_UPLOAD_PRESET</span>. The secret never reaches this browser. The bundled sample dataset still
+        renders from Cloudinary’s public <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
+      </p>
+      <div className="flex justify-end">
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setSettingsOpen(false)}>
+          Done
+        </button>
+      </div>
+    </div>
   );
 }

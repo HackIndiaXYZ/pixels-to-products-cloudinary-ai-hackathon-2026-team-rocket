@@ -91,14 +91,17 @@ function skipToContent(event: MouseEvent<HTMLAnchorElement>) {
  */
 export function ConsoleShell() {
   const { route } = useConsoleRoute();
-  const { assets, settings, userAssets } = useConsoleData();
+  const { assets, settings, backend } = useConsoleData();
   const { navigate, setPaletteOpen, setIngestOpen, setSettingsOpen } = useConsoleActions();
   const mod = useModKey();
 
   const openCount = useMemo(() => findingRecords(assets).filter(isOpen).length, [assets]);
   const sampleCount = useMemo(() => fieldAssets(assets.filter((a) => a.source === 'sample')).length, [assets]);
-  const uploadsOn = canUpload(settings);
-  const isDemo = settings.cloudName === DEMO_CLOUD;
+  // Records beyond the sample dataset: uploads and syncs in this browser plus records read from the team's cloud.
+  const ownCount = useMemo(() => assets.filter((a) => a.source !== 'sample').length, [assets]);
+  const uploadsOn = Boolean(backend?.configured) || canUpload(settings);
+  const cloudName = backend?.configured && backend.cloudName ? backend.cloudName : settings.cloudName;
+  const isDemo = cloudName === DEMO_CLOUD;
 
   const current = NAV.find((n) => n.view === route.view) ?? NAV[0];
   const CurrentView = VIEW_COMPONENTS[current.view];
@@ -176,7 +179,7 @@ export function ConsoleShell() {
             }
           >
             <LiveDot />
-            <span>cloud: {settings.cloudName}</span>
+            <span>cloud: {cloudName}</span>
             <span className="hidden text-ink-3 lg:inline">· {uploadsOn ? 'ingest on' : 'read-only'}</span>
           </button>
           <button
@@ -237,10 +240,10 @@ export function ConsoleShell() {
                         <span className="sr-only"> open</span>
                       </span>
                     )}
-                    {item.view === 'library' && userAssets.length > 0 && (
+                    {item.view === 'library' && ownCount > 0 && (
                       <span className="num relative ml-auto rounded-[5px] bg-signal px-1.5 font-mono text-[10.5px] text-signal-ink">
-                        <span className="sr-only">, </span>+{userAssets.length}
-                        <span className="sr-only"> added this session</span>
+                        <span className="sr-only">, </span>+{ownCount}
+                        <span className="sr-only"> of your own records beyond the sample dataset</span>
                       </span>
                     )}
                   </button>

@@ -1,14 +1,21 @@
 import type { Category, MediaAsset, ResourceType, Severity } from '@/lib/types';
+import type { CloudResource, UploadSignature } from './backend';
+import { derivedFindingId, encodeContext } from './ingest-fields';
+
+export { encodeContext } from './ingest-fields';
 
 /**
- * Ingestion into the team's own Cloudinary cloud, entirely from the browser:
+ * Ingestion into the team's own Cloudinary cloud:
  *
- *  - Upload: the Upload API with an *unsigned upload preset*
- *    (POST https://api.cloudinary.com/v1_1/<cloud>/auto/upload). No API secret
- *    is ever used or shipped. Structured fields travel as Cloudinary `tags`
- *    and contextual metadata (`context`), so Cloudinary is the system of record.
- *  - Sync: the client-side resource list (GET res.cloudinary.com/<cloud>/<type>/list/<tag>.json)
- *    reads back everything tagged for VisualOps, including that context.
+ *  - Signed upload (with the VisualOps server): the browser asks POST /api/cloudinary/sign for a
+ *    signature over the record fields, then uploads the file straight to the Upload API
+ *    (POST https://api.cloudinary.com/v1_1/<cloud>/auto/upload) with the signed parameters and the
+ *    team's signed upload preset. The API secret stays on the server.
+ *  - Unsigned upload (no server, e.g. a static deployment): an unsigned upload preset.
+ *  Either way the structured fields travel as Cloudinary `tags` and contextual metadata
+ *  (`context`), so Cloudinary is the system of record.
+ *  - Read back: GET /api/assets (Cloudinary Search API, server-side) or, without a server, the
+ *    client-side resource list (GET res.cloudinary.com/<cloud>/<type>/list/<tag>.json).
  */
 
 export interface IngestMetadata {
@@ -45,44 +52,52 @@ export class CloudinaryRequestError extends Error {
   }
 }
 
-const escapeContext = (value: string) => value.replace(/([=|])/g, '\\$1');
+export type UploadOptions =
+  | {
+      /** Unsigned upload through a public upload preset (no server). */
+      cloudName: string;
+      uploadPreset: string;
+      tags: string[];
+      metadata: IngestMetadata & { findingId?: string };
+      onProgress?: (fraction: number) => void;
+    }
+  | {
+      /** Signed upload: parameters and signature issued by POST /api/cloudinary/sign. */
+      signed: UploadSignature;
+      onProgress?: (fraction: number) => void;
+    };
 
-export function encodeContext(fields: Record<string, string | undefined>): string {
-  return Object.entries(fields)
-    .filter(([, v]) => v !== undefined && v !== '')
-    .map(([k, v]) => `${k}=${escapeContext(String(v))}`)
-    .join('|');
-}
-
-export function uploadFile(
-  file: File,
-  options: {
-    cloudName: string;
-    uploadPreset: string;
-    tags: string[];
-    metadata: IngestMetadata;
-    onProgress?: (fraction: number) => void;
-  },
-): Promise<UploadResponse> {
+export function uploadFile(file: File, options: UploadOptions): Promise<UploadResponse> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append('file', file);
-    form.append('upload_preset', options.uploadPreset);
-    form.append('tags', options.tags.join(','));
-    form.append(
-      'context',
-      encodeContext({
-        title: options.metadata.title,
-        site: options.metadata.site,
-        category: options.metadata.category,
-        severity: options.metadata.severity,
-        note: options.metadata.note,
-        source: 'visualops',
-      }),
-    );
+    let cloudName: string;
+    if ('signed' in options) {
+      // Exactly the signed parameters, unchanged, plus the public API key and the signature.
+      cloudName = options.signed.cloudName;
+      for (const [key, value] of Object.entries(options.signed.params)) form.append(key, value);
+      form.append('api_key', options.signed.apiKey);
+      form.append('signature', options.signed.signature);
+    } else {
+      cloudName = options.cloudName;
+      form.append('upload_preset', options.uploadPreset);
+      form.append('tags', options.tags.join(','));
+      form.append(
+        'context',
+        encodeContext({
+          title: options.metadata.title,
+          site: options.metadata.site,
+          category: options.metadata.category,
+          severity: options.metadata.severity,
+          note: options.metadata.note,
+          finding_id: options.metadata.findingId,
+          source: 'visualops',
+        }),
+      );
+    }
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `https://api.cloudinary.com/v1_1/${encodeURIComponent(options.cloudName)}/auto/upload`);
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/auto/upload`);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) options.onProgress?.(event.loaded / event.total);
     };
@@ -144,11 +159,6 @@ function toSeverity(value: string | undefined): Severity | undefined {
   return SEVERITIES.includes(value as Severity) ? (value as Severity) : undefined;
 }
 
-let findingCounter = 0;
-function userFindingId(): string {
-  findingCounter += 1;
-  return `VO-U${Date.now().toString(36).slice(-4).toUpperCase()}${findingCounter}`;
-}
 
 interface AssetInput {
   cloudName: string;
@@ -192,7 +202,8 @@ export function toMediaAsset(input: AssetInput): MediaAsset {
     source: input.source,
     finding: severity
       ? {
-          id: userFindingId(),
+          // Stable across reloads and devices: written at ingest, otherwise derived from the asset.
+          id: ctx.finding_id || derivedFindingId(input.cloudName, input.publicId),
           title,
           category,
           severity,
@@ -202,4 +213,24 @@ export function toMediaAsset(input: AssetInput): MediaAsset {
         }
       : undefined,
   };
+}
+
+/** Maps a record read back from the team's cloud (GET /api/assets) onto a VisualOps record. */
+export function cloudResourceToAsset(cloudName: string, r: CloudResource): MediaAsset {
+  return toMediaAsset({
+    cloudName,
+    publicId: r.public_id,
+    resourceType: r.resource_type,
+    format: r.format,
+    width: r.width,
+    height: r.height,
+    bytes: r.bytes,
+    duration: r.duration,
+    createdAt: r.created_at,
+    fileName: r.display_name,
+    tags: r.tags,
+    context: r.context,
+    // Records created by VisualOps' own ingest carry context source=visualops; anything else was tagged elsewhere.
+    source: r.context.source === 'visualops' ? 'upload' : 'sync',
+  });
 }

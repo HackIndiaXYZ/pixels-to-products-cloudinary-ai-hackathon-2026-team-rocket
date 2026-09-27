@@ -5,6 +5,7 @@ import {
   startTransition,
   useCallback,
   useContext,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -16,6 +17,8 @@ import {
 import type { CloudSettings, MediaAsset } from '@/lib/types';
 import { buildSampleAssets } from '@/lib/data/dataset';
 import { ENV_SETTINGS } from '@/lib/cloudinary/config';
+import { fetchBackendConfig, fetchCloudAssets, type BackendConfig } from '@/lib/cloudinary/backend';
+import { cloudResourceToAsset } from '@/lib/cloudinary/upload';
 import { defaultPresetFor, presetSteps, type PipelineStep } from '@/lib/cloudinary/pipeline';
 import { DEFAULT_SCOPE, type ReportKind, type ReportScope } from '@/lib/report';
 import { hashFor, parseHash, readEntry, rememberScroll, writeEntry, type HistoryEntry, type View } from './state/history';
@@ -62,7 +65,19 @@ export interface ConsoleData {
   setSettings: (settings: CloudSettings) => void;
   resetSettings: () => void;
   settingsOverridden: boolean;
+  /** The VisualOps server's Cloudinary connection (null while it is being checked). */
+  backend: BackendConfig | null;
+  /** Records loaded from the team's Cloudinary cloud through GET /api/assets. */
+  cloud: CloudState;
+  /** Re-reads the team's records from Cloudinary; resolves to how many there are. */
+  refreshCloud: () => Promise<number>;
 }
+
+export type CloudState =
+  | { status: 'off' }
+  | { status: 'loading' }
+  | { status: 'ready'; count: number; at: number }
+  | { status: 'error'; message: string };
 
 /** Where the console is and what Studio/Reports are working on. Changes on view switches and Studio/Report edits. */
 export interface ConsoleRoute {
@@ -298,7 +313,41 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
 
   // ---- data ---------------------------------------------------------------
 
-  const assets = useMemo(() => [...userAssets, ...samples], [userAssets, samples]);
+  // The server's Cloudinary connection, and the team's records stored there (tags + context metadata).
+  const [backend, setBackend] = useState<BackendConfig | null>(null);
+  const [cloudAssets, setCloudAssets] = useState<MediaAsset[]>([]);
+  const [cloud, setCloud] = useState<CloudState>({ status: 'off' });
+
+  const refreshCloud = useCallback(async () => {
+    setCloud({ status: 'loading' });
+    try {
+      const page = await fetchCloudAssets();
+      const records = page.resources.map((r) => cloudResourceToAsset(page.cloudName, r));
+      setCloudAssets(records);
+      setCloud({ status: 'ready', count: records.length, at: Date.now() });
+      return records.length;
+    } catch (error) {
+      setCloud({ status: 'error', message: (error as Error).message });
+      throw error;
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchBackendConfig(controller.signal).then((config) => {
+      if (controller.signal.aborted) return;
+      setBackend(config);
+      if (config.configured) refreshCloud().catch(() => undefined);
+    });
+    return () => controller.abort();
+  }, [refreshCloud]);
+
+  // One record per Cloudinary asset: the copy read from the cloud wins over this browser's cached copy.
+  const assets = useMemo(() => {
+    const key = (a: MediaAsset) => `${a.cloudName}/${a.resourceType}/${a.publicId}`;
+    const inCloud = new Set(cloudAssets.map(key));
+    return [...cloudAssets, ...userAssets.filter((a) => !inCloud.has(key(a))), ...samples];
+  }, [cloudAssets, userAssets, samples]);
   const getAsset = useCallback((id: string | undefined | null) => (id ? assets.find((a) => a.id === id) : undefined), [assets]);
 
   const addUserAssets = useCallback((incoming: MediaAsset[]) => {
@@ -369,8 +418,22 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
 
   const settingsOverridden = settingsOverride !== null;
   const data = useMemo<ConsoleData>(
-    () => ({ now, assets, userAssets, getAsset, addUserAssets, removeUserAsset, settings, setSettings, resetSettings, settingsOverridden }),
-    [now, assets, userAssets, getAsset, addUserAssets, removeUserAsset, settings, setSettings, resetSettings, settingsOverridden],
+    () => ({
+      now,
+      assets,
+      userAssets,
+      getAsset,
+      addUserAssets,
+      removeUserAsset,
+      settings,
+      setSettings,
+      resetSettings,
+      settingsOverridden,
+      backend,
+      cloud,
+      refreshCloud,
+    }),
+    [now, assets, userAssets, getAsset, addUserAssets, removeUserAsset, settings, setSettings, resetSettings, settingsOverridden, backend, cloud, refreshCloud],
   );
 
   const routeValue = useMemo<ConsoleRoute>(

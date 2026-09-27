@@ -5,7 +5,9 @@ import { useRef, useState } from 'react';
 import type { Category, MediaAsset, ResourceType, Severity } from '@/lib/types';
 import { CATEGORIES, CATEGORY_LABEL, SEVERITIES, sitesOf } from '@/lib/analytics';
 import { canUpload, DEMO_CLOUD } from '@/lib/cloudinary/config';
-import { listByTag, toMediaAsset, uploadFile, type IngestMetadata, type ListedResource } from '@/lib/cloudinary/upload';
+import { requestUploadSignature } from '@/lib/cloudinary/backend';
+import { newFindingId } from '@/lib/cloudinary/ingest-fields';
+import { listByTag, toMediaAsset, uploadFile, type IngestMetadata, type ListedResource, type UploadResponse } from '@/lib/cloudinary/upload';
 import { formatBytes, titleCase } from '@/lib/format';
 import { Dialog } from '@/components/ui/Dialog';
 import { cn } from '@/components/ui/cn';
@@ -38,20 +40,22 @@ type SyncState =
 
 export function IngestSheet() {
   const { ingestOpen, setIngestOpen } = useConsoleUi();
-  const { settings } = useConsoleData();
+  const { settings, backend } = useConsoleData();
   const demo = settings.cloudName === DEMO_CLOUD;
-  const uploads = canUpload(settings);
+  const uploads = backend?.configured || canUpload(settings);
   return (
     <Dialog
       open={ingestOpen}
       onClose={() => setIngestOpen(false)}
       title="Ingest field media"
       description={
-        uploads
-          ? 'Upload straight into your Cloudinary cloud, or sync what is already there by tag.'
-          : demo
-            ? 'Bring real media into the library from Cloudinary’s public demo cloud.'
-            : 'Sync what is already in your Cloudinary cloud by tag. Uploading needs an unsigned upload preset.'
+        backend?.configured
+          ? 'Upload into your Cloudinary cloud with server-signed uploads, or refresh the records already stored there.'
+          : uploads
+            ? 'Upload straight into your Cloudinary cloud, or sync what is already there by tag.'
+            : demo
+              ? 'Bring real media into the library from Cloudinary’s public demo cloud.'
+              : 'Sync what is already in your Cloudinary cloud by tag. Uploading needs an unsigned upload preset.'
       }
       className="max-w-[760px]"
     >
@@ -61,7 +65,18 @@ export function IngestSheet() {
 }
 
 function IngestBody() {
-  const { settings } = useConsoleData();
+  const { settings, backend } = useConsoleData();
+  // Connected server: signed uploads, and the team's records read back through the Search API.
+  if (backend?.configured) {
+    return (
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        <UploadSection />
+        <div className="border-t border-line pt-5">
+          <CloudRecordsSection />
+        </div>
+      </div>
+    );
+  }
   // Without an upload preset the working path is Sync, so it comes first and upload setup folds away.
   if (!canUpload(settings)) {
     return (
@@ -84,7 +99,9 @@ function IngestBody() {
 // ---- upload -----------------------------------------------------------------
 
 function UploadSection() {
-  const { settings, addUserAssets, assets } = useConsoleData();
+  const { settings, addUserAssets, assets, backend } = useConsoleData();
+  const signedCloud = backend?.configured ? backend.cloudName ?? settings.cloudName : null;
+  const tag = backend?.configured ? backend.tag ?? settings.tag : settings.tag;
   const { setIngestOpen, inspect, navigate } = useConsoleActions();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -106,16 +123,41 @@ function UploadSection() {
     for (const item of queue.filter((q) => q.status === 'queued' || q.status === 'error')) {
       patch(item.id, { status: 'uploading', progress: 0, message: undefined });
       try {
-        const res = await uploadFile(item.file, {
-          cloudName: settings.cloudName,
-          uploadPreset: settings.uploadPreset,
-          tags: [settings.tag, meta.category, meta.site.toLowerCase().replace(/\s+/g, '-')],
-          metadata: { ...meta, title: meta.title || item.file.name.replace(/\.[^.]+$/, '') },
-          onProgress: (p) => patch(item.id, { progress: p }),
-        });
+        const title = meta.title || item.file.name.replace(/\.[^.]+$/, '');
+        const findingId = meta.severity ? newFindingId() : undefined;
+        const tags = [tag, meta.category, meta.site.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')].filter(Boolean);
+        const onProgress = (p: number) => patch(item.id, { progress: p });
+        let res: UploadResponse;
+        let cloudName: string;
+        if (signedCloud) {
+          // Server-signed: the server validates the fields, pins the tag and the signed preset, and signs.
+          const signed = await requestUploadSignature({
+            tags,
+            context: {
+              title,
+              site: meta.site,
+              category: meta.category,
+              severity: meta.severity,
+              note: meta.note,
+              finding_id: findingId,
+              source: 'visualops',
+            },
+          });
+          cloudName = signed.cloudName;
+          res = await uploadFile(item.file, { signed, onProgress });
+        } else {
+          cloudName = settings.cloudName;
+          res = await uploadFile(item.file, {
+            cloudName,
+            uploadPreset: settings.uploadPreset,
+            tags,
+            metadata: { ...meta, title, findingId },
+            onProgress,
+          });
+        }
         if (res.resource_type !== 'image' && res.resource_type !== 'video') throw new Error(`Unsupported resource type ${res.resource_type}`);
         const asset = toMediaAsset({
-          cloudName: settings.cloudName,
+          cloudName,
           publicId: res.public_id,
           resourceType: res.resource_type,
           format: res.format,
@@ -127,11 +169,13 @@ function UploadSection() {
           fileName: res.original_filename,
           tags: res.tags,
           context: res.context?.custom ?? {
-            title: meta.title || item.file.name,
+            title,
             site: meta.site,
             category: meta.category,
             ...(meta.severity ? { severity: meta.severity } : {}),
             ...(meta.note ? { note: meta.note } : {}),
+            ...(findingId ? { finding_id: findingId } : {}),
+            source: 'visualops',
           },
           source: 'upload',
         });
@@ -150,7 +194,9 @@ function UploadSection() {
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-[13.5px] font-semibold">Upload to Cloudinary</h3>
         <span className="truncate font-mono text-[11px] text-ink-3">
-          {settings.cloudName} · preset {settings.uploadPreset}
+          {signedCloud
+            ? `${signedCloud} · signed${backend?.uploadPreset ? ` · preset ${backend.uploadPreset}` : ''}`
+            : `${settings.cloudName} · preset ${settings.uploadPreset}`}
         </span>
       </div>
 
@@ -232,7 +278,8 @@ function UploadSection() {
           }}
         />
         <p className="text-[11.5px] text-ink-3">
-          Tags <span className="font-mono">{settings.tag}</span>, category and site go to Cloudinary as tags and context metadata.
+          Tags <span className="font-mono">{tag}</span>, category and site go to Cloudinary as tags and context metadata
+          {signedCloud ? '; the server signs each upload, the file goes straight to Cloudinary.' : '.'}
         </p>
       </div>
 
@@ -343,7 +390,60 @@ function UploadSetup() {
   );
 }
 
-// ---- sync -------------------------------------------------------------------
+// ---- records in the team's cloud (server) ------------------------------------
+
+/** With the server connected: the team's records are read from Cloudinary with the Search API. */
+function CloudRecordsSection() {
+  const { backend, cloud, refreshCloud } = useConsoleData();
+  const { setIngestOpen, navigate } = useConsoleActions();
+  const loading = cloud.status === 'loading';
+  return (
+    <section>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-[13.5px] font-semibold">Records in your Cloudinary cloud</h3>
+        <span className="truncate font-mono text-[11px] text-ink-3">
+          {backend?.cloudName} · tag {backend?.tag}
+        </span>
+      </div>
+      <p className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
+        Every image and video tagged <span className="font-mono text-ink-2">{backend?.tag}</span> is read back from Cloudinary with the Search API
+        (server-side), including the context metadata written at upload, so the library is the same on every device.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2" aria-live="polite">
+        <button type="button" className="btn btn-secondary btn-sm" disabled={loading} onClick={() => void refreshCloud().catch(() => undefined)}>
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Refresh from Cloudinary
+        </button>
+        {cloud.status === 'ready' && (
+          <>
+            <span className="text-[12.5px] text-ink-2">
+              {cloud.count} {cloud.count === 1 ? 'record' : 'records'} in the cloud
+            </span>
+            {cloud.count > 0 && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setIngestOpen(false);
+                  navigate('library');
+                }}
+              >
+                View in library <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </>
+        )}
+        {cloud.status === 'error' && (
+          <span className="flex items-center gap-1.5 text-[12.5px] text-critical">
+            <TriangleAlert className="h-3.5 w-3.5" /> {cloud.message}
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---- sync (no server: client-side resource list) ------------------------------
 
 const assetKey = (cloudName: string, type: ResourceType, publicId: string) => `${cloudName}/${type}/${publicId}`;
 
@@ -366,8 +466,8 @@ function SyncSection({ primary = false }: { primary?: boolean }) {
         types.map(async (type) => (await listByTag(cloud, tag, type)).map((r: ListedResource) => ({ r, type }))),
       );
       const found = lists.flat();
-      // The bundled samples (and anything uploaded here) already live in the library under their own ids.
-      const known = new Set(assets.filter((a) => a.source !== 'sync').map((a) => assetKey(a.cloudName, a.resourceType, a.publicId)));
+      // Anything already in the library (samples, uploads, earlier syncs) is skipped, so re-syncing never duplicates.
+      const known = new Set(assets.map((a) => assetKey(a.cloudName, a.resourceType, a.publicId)));
       const fresh = found
         .filter(({ r, type }) => !known.has(assetKey(cloud, type, r.public_id)))
         .sort((a, b) => Date.parse(b.r.created_at ?? '') - Date.parse(a.r.created_at ?? '') || 0);
@@ -391,7 +491,7 @@ function SyncSection({ primary = false }: { primary?: boolean }) {
       );
       if (synced.length) addUserAssets(synced);
 
-      const where = demo ? 'the sample dataset' : 'the library';
+      const where = 'the library';
       let message: string;
       if (!found.length) message = `Nothing on ${cloud} carries the tag “${tag}”${demo ? ' as an image' : ''}.`;
       else if (!synced.length) message = `Everything tagged “${tag}” on ${cloud} is already in ${where}.`;
