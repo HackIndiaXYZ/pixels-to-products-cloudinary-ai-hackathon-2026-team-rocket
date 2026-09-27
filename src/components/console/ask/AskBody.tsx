@@ -415,12 +415,19 @@ export const AskBody = memo(function AskBody({ onClose }: { onClose: () => void 
           )}
         </span>
         {(provenance || analysed > 0) && (
-          <span className="hidden min-w-0 items-center gap-1.5 md:flex" aria-label="Where the matched fields come from">
+          // Clips rather than spilling into the hints or buttons when the palette is narrow.
+          <span className="hidden min-w-0 items-center gap-1.5 overflow-hidden md:flex" aria-label="Where the matched fields come from">
             {provenance && <ProvenanceBadge kind="human" detail={provenance} />}
             {analysed > 0 && <ProvenanceBadge kind="ai" detail={`Cloudinary · ${analysed}`} className="hidden lg:inline-flex" />}
           </span>
         )}
-        <span className="ml-auto hidden items-center gap-1.5 text-[11px] text-ink-3 xl:flex">
+        <span
+          className={cn(
+            'ml-auto hidden shrink-0 items-center gap-1.5 text-[11px] text-ink-3',
+            // With provenance badges and result actions in the row, the key hints only fit on very wide screens.
+            committed && (provenance || analysed > 0) ? '2xl:flex' : 'xl:flex',
+          )}
+        >
           <Kbd>↑</Kbd>
           <Kbd>↓</Kbd>
           <span className="mr-2">select</span>
