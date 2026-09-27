@@ -336,16 +336,59 @@ VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the se
 
 ## Team
 
-**Team Rocket** — Pixels to Products, Cloudinary AI Hackathon 2026.
+<div align="center">
 
-| Member | Contact | Responsibility |
-| --- | --- | --- |
-| **Abhishek Nayak** | iabhishekn@gmail.com | Product & Frontend |
-| **Aditya Raikwar** | adityaraikwar792@gmail.com | AI & Media Intelligence |
-| **Akshat Lohiya** | akshatlohiya12@gmail.com | Backend & Cloudinary Integration |
-| **Nethaniel Johan Kurian** | nethk1006@gmail.com | Full-Stack Integration & Technical Lead |
+### 🚀 Team Rocket
 
-Roles describe each member's area of responsibility for the hackathon. They are not a record of individual commits.
+**Pixels to Products — Cloudinary AI Hackathon 2026** · Track 1: AI Media Pipelines
+
+<br/>
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <br/>
+      <img src="https://ui-avatars.com/api/?name=Abhishek+Nayak&amp;size=160&amp;background=132036&amp;color=3dd6f5&amp;bold=true&amp;rounded=true&amp;format=png" width="84" height="84" alt="Abhishek Nayak"/>
+      <h3>Abhishek Nayak</h3>
+      <sub><b>🎨 Product &amp; Frontend</b></sub>
+      <br/><br/>
+      <a href="mailto:iabhishekn@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Abhishek Nayak"/></a>
+      <a href="https://github.com/iabhishekn"><img src="https://img.shields.io/badge/GitHub-0a1120?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Abhishek Nayak on GitHub"/></a>
+      <br/><br/>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <br/>
+      <img src="https://ui-avatars.com/api/?name=Aditya+Raikwar&amp;size=160&amp;background=132036&amp;color=3dd6f5&amp;bold=true&amp;rounded=true&amp;format=png" width="84" height="84" alt="Aditya Raikwar"/>
+      <h3>Aditya Raikwar</h3>
+      <sub><b>🧠 AI &amp; Media Intelligence</b></sub>
+      <br/><br/>
+      <a href="mailto:adityaraikwar792@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Aditya Raikwar"/></a>
+      <br/><br/>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <br/>
+      <img src="https://ui-avatars.com/api/?name=Akshat+Lohiya&amp;size=160&amp;background=132036&amp;color=3dd6f5&amp;bold=true&amp;rounded=true&amp;format=png" width="84" height="84" alt="Akshat Lohiya"/>
+      <h3>Akshat Lohiya</h3>
+      <sub><b>☁️ Backend &amp; Cloudinary Integration</b></sub>
+      <br/><br/>
+      <a href="mailto:akshatlohiya12@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Akshat Lohiya"/></a>
+      <br/><br/>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <br/>
+      <img src="https://ui-avatars.com/api/?name=Nethaniel+Johan+Kurian&amp;size=160&amp;background=132036&amp;color=3dd6f5&amp;bold=true&amp;rounded=true&amp;format=png" width="84" height="84" alt="Nethaniel Johan Kurian"/>
+      <h3>Nethaniel Johan Kurian</h3>
+      <sub><b>🔗 Full-Stack Integration &amp; Technical Lead</b></sub>
+      <br/><br/>
+      <a href="mailto:nethk1006@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Nethaniel Johan Kurian"/></a>
+      <br/><br/>
+    </td>
+  </tr>
+</table>
+
+<sub>Roles describe each member's area of responsibility for the hackathon; they are not a record of individual commits.</sub>
+
+</div>
 
 ## License
 
