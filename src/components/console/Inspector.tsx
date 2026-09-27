@@ -88,10 +88,13 @@ function InspectorShell({ asset, paletteOpen }: { asset: MediaAsset; paletteOpen
     closeInspector();
   }, [asset.id, closeInspector, originId]);
 
+  // After the first step the chrome is already on screen: later records swap in place and only the media crossfades.
+  const [stepped, setStepped] = useState(false);
   const step = useCallback(
     (dir: 1 | -1) => {
       if (!canStep) return;
       setOriginId(null);
+      setStepped(true);
       inspect(ids[(index + dir + ids.length) % ids.length]);
     },
     [canStep, ids, index, inspect],
@@ -246,13 +249,13 @@ function InspectorShell({ asset, paletteOpen }: { asset: MediaAsset; paletteOpen
           </button>
         </motion.header>
 
-        <InspectorBody key={asset.id} asset={asset} morph={originId === asset.id} titleId={titleId} />
+        <InspectorBody key={asset.id} asset={asset} morph={originId === asset.id} stepped={stepped} titleId={titleId} />
       </div>
     </div>
   );
 }
 
-function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: boolean; titleId: string }) {
+function InspectorBody({ asset, morph, stepped, titleId }: { asset: MediaAsset; morph: boolean; stepped: boolean; titleId: string }) {
   const [view, setView] = useState<StillView>('original');
   const [showAnnotation, setShowAnnotation] = useState(true);
   const [showFocus, setShowFocus] = useState(false);
@@ -300,13 +303,17 @@ function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: bo
           isVideo ? '[--stage-h:44dvh] lg:[--stage-h:calc(100dvh_-_320px)]' : '[--stage-h:58dvh] lg:[--stage-h:calc(100dvh_-_196px)]',
         )}
       >
-        {/* Quiet survey texture: a light table for the frame. Static, never animated. */}
-        <span
+        {/* Quiet survey texture: a light table for the frame. It only fades with the backdrop, so it never lingers over the Library on close. */}
+        <motion.span
           aria-hidden
-          className="survey-grid pointer-events-none absolute inset-0 opacity-60 [mask-image:radial-gradient(ellipse_at_center,black_20%,transparent_72%)]"
+          initial={stepped ? false : { opacity: 0 }}
+          animate={{ opacity: 0.6 }}
+          exit={{ opacity: 0, transition: { duration: 0.14 } }}
+          transition={{ duration: 0.26, ease: EASE }}
+          className="survey-grid pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black_20%,transparent_72%)]"
         />
         <motion.div
-          initial={{ opacity: 0 }}
+          initial={stepped ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, transition: { duration: 0.14 } }}
           transition={{ duration: 0.3, delay: 0.14 }}
@@ -371,6 +378,9 @@ function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: bo
           <motion.div
             layoutId={morph ? `media-${asset.id}` : undefined}
             transition={{ layout: MORPH }}
+            // With a tile to morph back into, the frame travels there; without one (stepped to a record that
+            // isn't on screen, or opened from a link) it fades out instead of hanging over the Library.
+            exit={morph ? undefined : { opacity: 0, transition: { duration: 0.16, ease: EASE } }}
             className="relative overflow-hidden"
             style={{ aspectRatio: `${asset.width} / ${asset.height}`, width: frameWidth, borderRadius: 6 }}
           >
@@ -418,11 +428,11 @@ function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: bo
         </div>
 
         {isVideo && (
-          <Keyframes asset={asset} duration={duration} width={frameWidth} videoRef={videoRef} videoReady={videoReady} />
+          <Keyframes asset={asset} duration={duration} width={frameWidth} videoRef={videoRef} videoReady={videoReady} stepped={stepped} />
         )}
 
         <motion.footer
-          initial={{ opacity: 0 }}
+          initial={stepped ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, transition: { duration: 0.14 } }}
           transition={{ duration: 0.3, delay: 0.18 }}
@@ -441,6 +451,7 @@ function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: bo
 
       <EvidenceRail
         asset={asset}
+        stepped={stepped}
         view={view}
         url={url}
         delivery={delivery}
@@ -519,12 +530,14 @@ function Keyframes({
   width,
   videoRef,
   videoReady,
+  stepped,
 }: {
   asset: MediaAsset;
   duration: number | undefined;
   width: string;
   videoRef: RefObject<HTMLVideoElement | null>;
   videoReady: boolean;
+  stepped: boolean;
 }) {
   const [playhead, setPlayhead] = useState<number | undefined>(undefined);
   useEffect(() => {
@@ -540,7 +553,7 @@ function Keyframes({
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
+      initial={stepped ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 0.14 } }}
       transition={{ duration: 0.3, delay: 0.2 }}

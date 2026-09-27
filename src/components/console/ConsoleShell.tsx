@@ -144,7 +144,7 @@ export function ConsoleShell() {
       {/* Top bar — paired with the landing preview's top bar, so entering the console morphs it into place. */}
       <ViewTransition name="console-topbar" share="morph" default="none">
         <header className="sticky top-0 z-40 flex h-[52px] items-center gap-2 border-b border-line bg-canvas/90 px-3 backdrop-blur-md sm:gap-3 sm:px-4">
-          <Link href="/" className="flex shrink-0 items-center rounded-md px-1.5 py-1 hover:bg-raised" aria-label="VisualOps home">
+          <Link href="/" className="flex shrink-0 items-center rounded-md px-1.5 py-1 transition-colors hover:bg-raised" aria-label="VisualOps home">
             <Logo />
           </Link>
           <span aria-hidden className="hidden shrink-0 text-line-strong sm:inline">
@@ -270,7 +270,7 @@ export function ConsoleShell() {
                   </p>
                 )}
               </div>
-              <Link href="/" className="flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink">
+              <Link href="/" className="flex items-center gap-1 text-[12px] text-ink-3 transition-colors hover:text-ink">
                 Product story <ArrowUpRight className="h-3 w-3" />
               </Link>
             </div>
@@ -309,9 +309,22 @@ export function ConsoleShell() {
                 type="button"
                 onClick={() => go(item.view)}
                 aria-current={active ? 'page' : undefined}
-                className={cn('flex min-w-0 flex-col items-center gap-1 py-2 text-[10.5px]', active ? 'text-ink' : 'text-ink-3')}
+                className={cn(
+                  'relative flex min-w-0 flex-col items-center gap-1 py-2 text-[10.5px] transition-colors active:bg-raised/60',
+                  active ? 'text-ink' : 'text-ink-3',
+                )}
               >
-                <Icon className={cn('h-[18px] w-[18px]', active && 'text-signal')} />
+                {/* The same gliding indicator as the desktop sidebar, as a signal rule along the top edge. */}
+                {active && (
+                  <motion.span
+                    layoutId="console-tab"
+                    layoutDependency={route.view}
+                    aria-hidden
+                    className="absolute inset-x-5 top-0 h-[2px] rounded-b-full bg-signal"
+                    transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+                  />
+                )}
+                <Icon className={cn('h-[18px] w-[18px] transition-colors', active && 'text-signal')} />
                 {item.label}
               </button>
             );

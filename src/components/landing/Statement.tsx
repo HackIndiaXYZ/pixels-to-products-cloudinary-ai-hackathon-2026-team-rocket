@@ -71,7 +71,7 @@ export function Statement() {
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true, margin: '0px 0px -10% 0px' }}
-          transition={{ duration: 0.7, delay: 0.35, ease: EASE }}
+          transition={{ duration: 0.6, delay: 0.15, ease: EASE }}
           className="mt-8 max-w-[38ch] text-[15.5px] leading-relaxed text-ink-2 lg:ml-[25%]"
         >
           A void at a kerb line, a gas cylinder beside live welding, a red light on a dashboard — already photographed, then lost in a

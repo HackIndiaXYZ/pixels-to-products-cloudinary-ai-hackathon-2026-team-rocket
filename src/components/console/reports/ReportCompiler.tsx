@@ -617,7 +617,8 @@ function Receipt({
           </div>
           <p
             className={cn(
-              'num mt-1 break-all font-mono text-[12px] leading-relaxed',
+              // groupHash() spaces the digest every 8 characters, so lines wrap between groups, never inside one.
+              'num mt-1 break-normal font-mono text-[12px] leading-relaxed',
               stale ? 'text-ink-3 line-through decoration-[color-mix(in_oklab,var(--color-ink-3)_70%,transparent)]' : 'text-ink',
             )}
           >

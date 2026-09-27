@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ArrowUpRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Logo } from '@/components/brand/Logo';
 import { measure } from '@/lib/cloudinary/probe';
@@ -103,11 +104,18 @@ export function SiteFooter() {
                   {col.links.map((link) => (
                     <li key={link.label}>
                       {link.external ? (
-                        <a href={link.href} target="_blank" rel="noreferrer" className="link-underline text-[13px] text-ink-2 hover:text-ink">
+                        <a
+                          href={link.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="link-underline text-[13px] text-ink-2 transition-colors hover:text-ink"
+                        >
                           {link.label}
+                          <ArrowUpRight aria-hidden className="ml-1 inline h-3 w-3 align-[-1px] opacity-60" />
+                          <span className="sr-only"> (opens in a new tab)</span>
                         </a>
                       ) : (
-                        <Link href={link.href} className="link-underline text-[13px] text-ink-2 hover:text-ink">
+                        <Link href={link.href} className="link-underline text-[13px] text-ink-2 transition-colors hover:text-ink">
                           {link.label}
                         </Link>
                       )}

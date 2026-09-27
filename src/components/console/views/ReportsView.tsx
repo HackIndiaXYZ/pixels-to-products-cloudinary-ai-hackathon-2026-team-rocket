@@ -250,7 +250,7 @@ function TemplateOption({
       onClick={() => onSelect(kind)}
       aria-pressed={active}
       className={cn(
-        'relative flex w-full gap-3 border-t border-line px-3 py-2.5 text-left transition-colors first:border-t-0',
+        'relative flex w-full gap-3 border-t border-line px-3 py-2.5 text-left transition-colors first:border-t-0 focus-visible:outline-offset-[-2px]',
         active ? 'bg-raised' : 'hover:bg-[color-mix(in_oklab,var(--color-raised)_55%,transparent)]',
       )}
     >
@@ -271,7 +271,7 @@ function ToggleChip({ active, onClick, children }: { active: boolean; onClick: (
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'rounded-[6px] border px-2 py-1 text-[12px] transition-colors',
+        'inline-flex items-center rounded-[6px] border px-2 py-1 text-[12px] transition-colors pointer-coarse:h-9 pointer-coarse:px-3',
         active
           ? 'border-signal bg-[color-mix(in_oklab,var(--color-signal)_10%,transparent)] text-ink'
           : 'border-line text-ink-2 hover:border-line-strong hover:text-ink',

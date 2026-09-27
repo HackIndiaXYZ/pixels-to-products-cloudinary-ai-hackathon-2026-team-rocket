@@ -7,7 +7,7 @@ import { SiteFooter } from '@/components/site/SiteFooter';
 export default function NotFound() {
   return (
     <>
-      <SiteNav />
+      <SiteNav solid />
       <main id="content" tabIndex={-1} className="theme-light min-h-screen px-5 pb-24 pt-36 outline-none sm:px-8">
         <article className="mx-auto max-w-2xl">
           <p className="label">404 · Not found</p>

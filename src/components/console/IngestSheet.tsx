@@ -276,7 +276,7 @@ function UploadSection() {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-[13.5px] font-semibold">Upload to Cloudinary</h3>
+        <h3 className="shrink-0 whitespace-nowrap text-[13.5px] font-semibold">Upload to Cloudinary</h3>
         <span className="truncate font-mono text-[11px] text-ink-3">
           {signedCloud
             ? `${signedCloud} · signed${backend?.uploadPreset ? ` · preset ${backend.uploadPreset}` : ''}`
@@ -346,7 +346,10 @@ function UploadSection() {
         )}
       >
         <CloudUpload className="h-6 w-6 text-ink-3" />
-        <p className="text-[13px] text-ink-2">Drop photos or videos here</p>
+        <p className="text-[13px] text-ink-2">
+          <span className="pointer-coarse:hidden">Drop photos or videos here</span>
+          <span className="hidden pointer-coarse:inline">Add photos or videos</span>
+        </p>
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => inputRef.current?.click()}>
           Choose files
         </button>

@@ -227,12 +227,19 @@ export function PipelineMachine({
           <span className="truncate font-mono text-[11.5px] text-ink-3">{asset.fileName}</span>
           <IntegrityBadge integrity={integrity} className="hidden sm:inline-flex" />
         </div>
-        <div className="flex min-w-0 items-center gap-3">
+        {/* On phones the summary stays left and the button stays pinned right, whatever the status text says. */}
+        <div className="flex w-full min-w-0 items-center justify-between gap-3 sm:w-auto sm:justify-end">
           {/* Visual status only; the live region below announces stage completions. */}
           <span
             className={cn(
               'num min-w-0 font-mono text-[11px] leading-snug',
-              state.phase === 'halted' ? 'text-critical' : outcome?.kind === 'complete' && outcome.warnings > 0 ? 'text-warn' : 'text-ink-3',
+              state.phase === 'halted'
+                ? 'text-critical'
+                : outcome?.kind === 'complete'
+                  ? outcome.warnings > 0
+                    ? 'text-warn'
+                    : 'text-ok'
+                  : 'text-ink-3',
             )}
           >
             {summary}

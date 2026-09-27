@@ -73,7 +73,7 @@ const SNAP_ROW = '-mx-5 flex snap-x snap-mandatory scroll-px-5 items-start gap-3
  */
 export function Solutions() {
   return (
-    <section id="solutions" aria-label="Solutions" className="theme-light relative overflow-hidden">
+    <section id="solutions" aria-label="Solutions" className="theme-light relative scroll-mt-[60px] overflow-hidden">
       <div className={cn(CONTAINER, 'pt-16 sm:pt-28')}>
         <SolutionsHeader />
         <DomainIndex />
@@ -97,8 +97,12 @@ export function Solutions() {
             written by the VisualOps team.
           </p>
           <div className="flex items-start lg:col-span-4 lg:col-start-9 lg:justify-end">
-            <Link href="/console#library" className="btn btn-secondary btn-lg" data-cursor="OPEN">
-              Browse all {FIELD.length} captures <ArrowUpRight aria-hidden className="h-4 w-4" />
+            <Link href="/console#library" className="group btn btn-secondary btn-lg" data-cursor="OPEN">
+              Browse all {FIELD.length} captures{' '}
+              <ArrowUpRight
+                aria-hidden
+                className="h-4 w-4 transition-transform duration-200 group-hover:-translate-y-px group-hover:translate-x-px"
+              />
             </Link>
           </div>
         </div>
@@ -124,7 +128,7 @@ function SolutionsHeader() {
         initial={{ opacity: 0, y: 14 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: '0px 0px -10% 0px' }}
-        transition={{ duration: 0.7, delay: 0.25, ease: EASE_EDITORIAL }}
+        transition={{ duration: 0.6, delay: 0.12, ease: EASE_EDITORIAL }}
       >
         Inspectors, site managers, and facilities, fleet and stores teams already record the physical world on phones, drones and
         fixed cameras. VisualOps gives every capture a site, a finding, a severity and a next action — and makes all of it

@@ -233,7 +233,12 @@ export function StageNode({
 
           {state.ai && (state.ai.caption || state.ai.objects.length > 0) && (
             <div className="mt-2 min-w-0">
-              <ProvenanceBadge kind="ai" detail={`Cloudinary · ${AI_ORIGIN[state.ai.origin]}`} className="py-0 text-[9.5px]" />
+              {/* The narrow horizontal column has no room for the "Cloudinary ·" qualifier: it would run into the next stage. */}
+              <ProvenanceBadge
+                kind="ai"
+                detail={horizontal ? AI_ORIGIN[state.ai.origin] : `Cloudinary · ${AI_ORIGIN[state.ai.origin]}`}
+                className="max-w-full overflow-hidden py-0 text-[9.5px]"
+              />
               {state.ai.objects.length > 0 && (
                 <ul className="mt-1 flex flex-wrap gap-1" aria-label="Objects Cloudinary detected">
                   {state.ai.objects.slice(0, maxObjects).map((o) => (

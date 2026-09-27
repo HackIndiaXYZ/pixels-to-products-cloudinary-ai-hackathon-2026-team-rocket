@@ -61,12 +61,11 @@ export function FindingList({
       </header>
 
       {empty ? (
-        // With no lead, the lead panel above already explains the empty view; the header's count is enough here.
-        hasLead && (
-          <p className="border-t border-line px-4 py-8 text-center text-[13px] text-ink-3">
-            Nothing else matches — the lead is the only finding in this view.
-          </p>
-        )
+        <p className="border-t border-line px-4 py-8 text-center text-[13px] text-ink-3">
+          {hasLead
+            ? 'Nothing else matches — the lead is the only finding in this view.'
+            : 'No findings in this view.'}
+        </p>
       ) : (
         <div className="relative">
           <AnimatePresence initial mode="popLayout">
@@ -158,7 +157,7 @@ function FindingRow({ record, now, onInspect }: { record: FindingRecord; now: nu
         type="button"
         data-cursor="OPEN"
         onClick={open}
-        className="grid w-full grid-cols-[112px_minmax(0,1fr)] items-start gap-4 px-4 py-4 text-left transition-colors hover:bg-raised sm:grid-cols-[152px_minmax(0,1fr)] md:grid-cols-[152px_minmax(0,1fr)_132px]"
+        className="grid w-full grid-cols-[112px_minmax(0,1fr)] items-start gap-4 px-4 py-4 text-left transition-colors hover:bg-raised focus-visible:outline-offset-[-2px] sm:grid-cols-[152px_minmax(0,1fr)] md:grid-cols-[152px_minmax(0,1fr)_132px]"
       >
         <Thumb asset={asset} width={152} height={96} />
         <span className="min-w-0">
@@ -198,7 +197,7 @@ function FindingRow({ record, now, onInspect }: { record: FindingRecord; now: nu
       data-cursor="OPEN"
       onClick={open}
       className={cn(
-        'group grid w-full items-center text-left transition-colors hover:bg-raised',
+        'group grid w-full items-center text-left transition-colors hover:bg-raised focus-visible:outline-offset-[-2px]',
         // Status and age share one column grid across medium and low rows, so the badges line up.
         minor
           ? 'grid-cols-[52px_minmax(0,1fr)] gap-3 px-4 py-2 md:grid-cols-[52px_minmax(0,1fr)_84px_104px]'

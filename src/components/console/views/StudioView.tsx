@@ -1,6 +1,6 @@
 'use client';
 
-import { Code2, Download, ExternalLink, Film, RotateCcw } from 'lucide-react';
+import { Code2, Download, ExternalLink, Film, RotateCcw, ScanSearch } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaAsset } from '@/lib/types';
 import { DEMO_CLOUD } from '@/lib/cloudinary/config';
@@ -122,7 +122,7 @@ export const StudioView = memo(function StudioView() {
         actions={
           <>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => inspect(asset.id)}>
-              Record
+              <ScanSearch className="h-3.5 w-3.5" /> Inspect record
             </button>
             <button type="button" className="btn btn-primary btn-sm" onClick={() => setExportOpen(true)}>
               <Code2 className="h-3.5 w-3.5" /> Export code

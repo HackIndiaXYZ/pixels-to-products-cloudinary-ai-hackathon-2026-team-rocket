@@ -28,11 +28,13 @@ export function FinalCta() {
         <SearchableLine delay={0.34} className="type-display mt-7 text-[clamp(28px,4.2vw,64px)] text-ink-3" />
 
         <div className="mt-14 flex flex-wrap items-center gap-3 lg:mt-20">
+          {/* Primary action first, as in the hero and the Evidence section. */}
+          <Link href="/console" data-cursor="OPEN" className="group btn btn-primary btn-lg">
+            Open Command Center
+            <ArrowRight aria-hidden className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+          </Link>
           <Link href="/#platform" className="btn btn-secondary btn-lg">
             Explore VisualOps
-          </Link>
-          <Link href="/console" data-cursor="OPEN" className="btn btn-primary btn-lg">
-            Open Command Center <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
 

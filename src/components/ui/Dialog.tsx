@@ -95,7 +95,7 @@ export function Dialog({
             className="absolute inset-0 bg-black/70"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.14 } }}
             transition={{ duration: 0.18 }}
             onClick={onClose}
           />
@@ -107,7 +107,8 @@ export function Dialog({
             tabIndex={-1}
             initial={{ opacity: 0, y: position === 'top' ? -8 : 10, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: position === 'top' ? -6 : 8, scale: 0.99 }}
+            // Leaves faster than it arrives, like Ask: closing should never feel like waiting.
+            exit={{ opacity: 0, y: position === 'top' ? -6 : 8, scale: 0.99, transition: { duration: 0.14, ease: [0.16, 1, 0.3, 1] } }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
               'relative z-10 flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-[14px] border border-line-strong bg-surface shadow-[0_24px_80px_-20px_rgba(0,0,0,0.8)] outline-none',

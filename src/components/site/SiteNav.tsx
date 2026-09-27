@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { ArrowUpRight, Menu, X } from 'lucide-react';
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { Logo } from '@/components/brand/Logo';
 import { cn } from '@/components/ui/cn';
 
@@ -33,11 +33,36 @@ function skipToContent(event: MouseEvent<HTMLAnchorElement>) {
   target.scrollIntoView({ block: 'start' });
 }
 
-/** Company navigation: quiet over the hero, solid once scrolled, with a scroll-spy indicator. */
-export function SiteNav() {
+/**
+ * Company navigation: quiet over the hero, solid once scrolled, with a scroll-spy indicator.
+ * `solid` keeps it solid from the top, for pages that start on a light surface (privacy, terms, 404),
+ * where a transparent bar would leave the logo and links light-on-light.
+ */
+export function SiteNav({ solid = false }: { solid?: boolean } = {}) {
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  // The phone menu closes on Escape (focus back on its button) and when the viewport reaches the desktop nav.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      menuButtonRef.current?.focus();
+    };
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const onDesktop = () => {
+      if (desktop.matches) setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    desktop.addEventListener('change', onDesktop);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      desktop.removeEventListener('change', onDesktop);
+    };
+  }, [open]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -47,10 +72,9 @@ export function SiteNav() {
   }, []);
 
   useEffect(() => {
-    const sections = LINKS.map((l) => l.section)
-      .filter((s): s is string => Boolean(s))
-      .map((id) => document.getElementById(id))
-      .filter((el): el is HTMLElement => Boolean(el));
+    // Every landing section, not only the linked ones: entering an unlinked section (statement, evidence,
+    // the closing CTA) clears the indicator instead of leaving it on the last linked item.
+    const sections = [...document.querySelectorAll<HTMLElement>('main > section[id]')];
     if (!sections.length) return;
     const io = new IntersectionObserver(
       (entries) => {
@@ -74,7 +98,12 @@ export function SiteNav() {
     <header
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color] duration-300',
-        scrolled || open ? 'border-b border-line bg-canvas/90 backdrop-blur-md' : 'border-b border-transparent',
+        // Open menu: opaque, so the page doesn't smear through the panel. Scrolled: near-opaque glass.
+        open
+          ? 'border-b border-line bg-canvas'
+          : scrolled || solid
+            ? 'border-b border-line bg-canvas/95 backdrop-blur-md'
+            : 'border-b border-transparent',
       )}
     >
       <a
@@ -121,6 +150,7 @@ export function SiteNav() {
             Launch console
           </Link>
           <button
+            ref={menuButtonRef}
             type="button"
             className="btn btn-ghost btn-icon shrink-0 lg:hidden"
             aria-expanded={open}

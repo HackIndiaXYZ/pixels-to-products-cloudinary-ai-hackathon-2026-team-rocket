@@ -375,20 +375,21 @@ function LeadMedia({ asset, finding, onInspect }: { asset: MediaAsset; finding: 
         <span className="truncate" title="Cloudinary transformations applied to this frame">
           {failed === evidenceSrc ? 'c_limit · q_auto · f_auto' : 'e_improve · e_pixelate_faces · audit stamp · f_auto'}
         </span>
-        <span className="flex items-center gap-3">
+        {/* Legend items wrap as whole phrases, never mid-label. */}
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {finding.region && (
-            <span className="flex items-center gap-1.5" title={`Marked region · human classified · ${humanProvenanceDetail(asset)}`}>
+            <span className="flex items-center gap-1.5 whitespace-nowrap" title={`Marked region · human classified · ${humanProvenanceDetail(asset)}`}>
               <span aria-hidden className="inline-block h-2 w-3 rounded-[2px] border border-high" />
               marked · human
             </span>
           )}
           {aiBoxes.length > 0 && (
-            <span className="flex items-center gap-1.5" title="Objects detected by Cloudinary AI (coco_v2)">
+            <span className="flex items-center gap-1.5 whitespace-nowrap" title="Objects detected by Cloudinary AI (coco_v2)">
               <span aria-hidden className="inline-block h-2 w-3 rounded-[2px] border border-signal" />
               objects · AI
             </span>
           )}
-          <span className="num flex items-center gap-1.5" title="Face detections reported by Cloudinary (fl_getinfo), fetched live">
+          <span className="num flex items-center gap-1.5 whitespace-nowrap" title="Face detections reported by Cloudinary (fl_getinfo), fetched live">
             <ProvenanceBadge kind="ai" detail="fl_getinfo" className="py-0 text-[9.5px]" />
             {insight ? (
               <span className="text-ink-2">{faceDetections(insight.faces.length)}</span>

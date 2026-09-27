@@ -93,7 +93,8 @@ export function Segmented<T extends string>({
             onClick={() => onChange(option.value)}
             className={cn(
               'relative inline-flex items-center gap-1.5 rounded-[7px] font-medium transition-colors',
-              size === 'sm' ? 'h-6 px-2 text-[11.5px]' : 'h-7 px-2.5 text-[12.5px]',
+              // Touch: the console's 32–36px target on coarse pointers.
+              size === 'sm' ? 'h-6 px-2 text-[11.5px] pointer-coarse:h-8 pointer-coarse:px-2.5' : 'h-7 px-2.5 text-[12.5px] pointer-coarse:h-9',
               active ? 'text-ink' : 'text-ink-3 hover:text-ink-2',
             )}
           >

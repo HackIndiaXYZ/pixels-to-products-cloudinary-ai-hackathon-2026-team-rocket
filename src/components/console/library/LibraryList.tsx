@@ -181,11 +181,11 @@ const Row = memo(function Row({
         <span className="block truncate text-ink-2">{asset.site}</span>
         {asset.zone && <span className="block truncate text-[11.5px] text-ink-3">{asset.zone}</span>}
       </td>
-      <td className="px-3 py-2">
+      <td className="whitespace-nowrap px-3 py-2">
         <span className="num block font-mono text-[11.5px] text-ink-2">{captured.time}</span>
         <span className="num block font-mono text-[10.5px] text-ink-3">{captured.detail}</span>
       </td>
-      <td className="num px-3 py-2 font-mono text-[11.5px] text-ink-3">
+      <td className="num whitespace-nowrap px-3 py-2 font-mono text-[11.5px] text-ink-3">
         {asset.format.toUpperCase()} · {formatBytes(asset.bytes)}
       </td>
     </tr>

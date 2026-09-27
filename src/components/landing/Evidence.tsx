@@ -29,7 +29,7 @@ export function Evidence() {
   const paperY = useTransform(scrollYProgress, [0, 1], drift ? [32, -32] : [0, 0]);
 
   return (
-    <section id="evidence" aria-label="Evidence integrity" className="theme-light relative overflow-hidden">
+    <section id="evidence" aria-label="Evidence integrity" className="theme-light relative scroll-mt-[60px] overflow-hidden">
       <div className="mx-auto max-w-[1440px] px-5 pb-24 pt-24 sm:px-8 sm:pb-32 sm:pt-32 lg:pb-40 lg:pt-36">
         <div className="flex items-baseline justify-between gap-6 border-t border-ink pt-4">
           <p className="label whitespace-nowrap text-ink">Evidence integrity</p>
@@ -59,7 +59,7 @@ export function Evidence() {
               initial={{ opacity: 0, y: 14 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '0px 0px -10% 0px' }}
-              transition={{ duration: 0.7, delay: 0.2, ease: EASE_EDITORIAL }}
+              transition={{ duration: 0.6, delay: 0.1, ease: EASE_EDITORIAL }}
             >
               Every transformation VisualOps runs through Cloudinary is classed by what it does to the pixels. Reports carry only the
               first class — corrected, redacted and stamped, with nothing generated — so what you send still shows what was captured.
@@ -74,8 +74,8 @@ export function Evidence() {
                 computed in your browser over this sample report payload, built by the same code the console uses for its exports.
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                <Link href="/console#reports" className="btn btn-primary btn-lg" data-cursor="OPEN">
-                  Build a report <ArrowRight aria-hidden className="h-4 w-4" />
+                <Link href="/console#reports" className="group btn btn-primary btn-lg" data-cursor="OPEN">
+                  Build a report <ArrowRight aria-hidden className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
                 </Link>
                 <Link href="/console#studio" className="btn btn-ghost btn-lg" data-cursor="OPEN">
                   Open the studio

@@ -42,12 +42,16 @@ export const RecentEvidence = memo(function RecentEvidence({
           </h2>
           <p className="mt-0.5 text-[12px] text-ink-3">Latest captures, auto-cropped by Cloudinary (c_fill, g_auto)</p>
         </div>
-        <button type="button" onClick={toLibrary} className="link-underline flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink">
+        <button
+          type="button"
+          onClick={toLibrary}
+          className="link-underline flex shrink-0 items-center gap-1 whitespace-nowrap text-[12px] text-ink-3 transition-colors hover:text-ink"
+        >
           Open library <ArrowRight className="h-3 w-3" />
         </button>
       </div>
 
-      <ul className="scrollbar-none -mx-4 mt-3 grid snap-x snap-mandatory auto-cols-[minmax(150px,1fr)] grid-flow-col gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+      <ul className="scrollbar-none -mx-4 mt-3 grid snap-x snap-mandatory scroll-px-4 auto-cols-[minmax(150px,1fr)] grid-flow-col gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:scroll-px-0 sm:px-0">
         {assets.map((asset, i) => {
           const severity = asset.finding?.severity;
           return (

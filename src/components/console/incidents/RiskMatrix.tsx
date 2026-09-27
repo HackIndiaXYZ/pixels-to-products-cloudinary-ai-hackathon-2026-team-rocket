@@ -134,13 +134,13 @@ export function RiskMatrix({
 
   return (
     <aside aria-labelledby="risk-matrix-title" className="panel h-fit p-4 xl:sticky xl:top-[68px]">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 id="risk-matrix-title" className="text-[13.5px] font-semibold">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <h2 id="risk-matrix-title" className="whitespace-nowrap text-[13.5px] font-semibold">
           Risk matrix
         </h2>
         <span className="flex items-center gap-2">
           <ProvenanceBadge kind="system" detail="counted" />
-          <span className="label">
+          <span className="label whitespace-nowrap">
             <span className="num">{total}</span> in scope
           </span>
         </span>

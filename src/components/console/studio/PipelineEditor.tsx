@@ -329,9 +329,18 @@ function Field({
           role="switch"
           aria-checked={value === true}
           onClick={() => onChange(value !== true)}
-          className={cn('relative h-5 w-9 rounded-full border transition-colors', value === true ? 'border-signal bg-signal' : 'border-line-strong bg-canvas')}
+          className={cn(
+            'relative h-5 w-9 rounded-full border transition-colors duration-200',
+            value === true ? 'border-signal bg-signal' : 'border-line-strong bg-canvas',
+          )}
         >
-          <span className={cn('absolute top-0.5 h-3.5 w-3.5 rounded-full transition-all', value === true ? 'left-[18px] bg-signal-ink' : 'left-0.5 bg-ink-3')} />
+          {/* The knob slides on transform (compositor only), like the Reports switch. */}
+          <span
+            className={cn(
+              'absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full transition-[transform,background-color] duration-200 ease-out',
+              value === true ? 'translate-x-4 bg-signal-ink' : 'translate-x-0 bg-ink-3',
+            )}
+          />
         </button>
       )}
       {field.help && <span className="block text-[11px] text-ink-3">{field.help}</span>}

@@ -92,6 +92,7 @@ function integrityNote(asset: MediaAsset, view: StillView, insight: CloudinaryIn
  */
 export function EvidenceRail({
   asset,
+  stepped = false,
   view,
   url,
   delivery,
@@ -107,6 +108,8 @@ export function EvidenceRail({
   titleId,
 }: {
   asset: MediaAsset;
+  /** Stepped to from another record: already on screen, so it doesn't slide in again. */
+  stepped?: boolean;
   view: StillView;
   url: string;
   delivery: ProbeResult | undefined;
@@ -145,7 +148,7 @@ export function EvidenceRail({
   return (
     <motion.aside
       aria-labelledby={titleId}
-      initial={{ opacity: 0, x: 24 }}
+      initial={stepped ? false : { opacity: 0, x: 24 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 12, transition: { duration: 0.16, ease: EASE } }}
       transition={{ duration: 0.44, delay: 0.08, ease: EASE }}
@@ -452,7 +455,7 @@ export function EvidenceRail({
                 }
               >
                 <ShieldCheck className="h-3.5 w-3.5" /> Redact for sharing
-                {noFaces && <span className="font-normal text-ink-3">· 0 faces detected</span>}
+                {noFaces && <span className="font-normal text-ink-3">· 0 faces</span>}
               </button>
             )}
             {inTeamCloud && asset.source === 'sample' ? (

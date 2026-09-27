@@ -13,7 +13,7 @@ export function SettingsDialog() {
     <Dialog
       open={settingsOpen}
       onClose={() => setSettingsOpen(false)}
-      title="Cloudinary"
+      title="Cloudinary connection"
       description="Where uploads go and what the library reads. The browser only ever holds public values — an API secret stays on the server."
       className="max-w-[560px]"
     >
@@ -109,7 +109,7 @@ function ServerConnection() {
         {rows.map(([k, v]) => (
           <div key={k} className="flex items-baseline justify-between gap-4 px-3 py-2.5">
             <dt className="text-[12.5px] text-ink-3">{k}</dt>
-            <dd className="min-w-0 truncate text-right font-mono text-[12px] text-ink">{v}</dd>
+            <dd className="min-w-0 break-words text-right font-mono text-[12px] text-ink sm:truncate">{v}</dd>
           </div>
         ))}
       </dl>
@@ -121,7 +121,7 @@ function ServerConnection() {
         <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
       </p>
       <div className="flex justify-end">
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => setSettingsOpen(false)}>
+        <button type="button" data-autofocus className="btn btn-primary btn-sm" onClick={() => setSettingsOpen(false)}>
           Done
         </button>
       </div>
