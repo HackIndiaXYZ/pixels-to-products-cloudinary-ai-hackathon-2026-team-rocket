@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Download, ExternalLink, FileText, Loader2, ScanFace, ShieldCheck, Sparkles, Trash2, TriangleAlert, Wand2 } from 'lucide-react';
+import { Download, ExternalLink, FileText, Loader2, LockKeyhole, ScanFace, ShieldCheck, Sparkles, Trash2, TriangleAlert, Wand2 } from 'lucide-react';
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { AiUnderstanding, AssetSource, FindingStatus, MediaAsset } from '@/lib/types';
 import { CROP_LABEL, describeCropCentre, type CloudinaryInsight } from '@/lib/cloudinary/insights';
@@ -455,7 +455,15 @@ export function EvidenceRail({
                 {noFaces && <span className="font-normal text-ink-3">· 0 faces detected</span>}
               </button>
             )}
-            {inTeamCloud ? (
+            {inTeamCloud && asset.source === 'sample' ? (
+              // Team-seeded sample records are protected on the server (DELETE /api/assets/[id]); say so up front.
+              <span
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12px] text-ink-3"
+                title="The shared workspace keeps its team-seeded sample records. Records you ingest can be removed."
+              >
+                <LockKeyhole className="h-3.5 w-3.5" aria-hidden /> Sample record · protected
+              </span>
+            ) : inTeamCloud ? (
               <RemoveFromVisualOps asset={asset} onRemoved={() => inspect(null)} />
             ) : (
               asset.source !== 'sample' && (

@@ -132,12 +132,12 @@ const assetPath = (publicId: string) => `/api/assets/${encodeURIComponent(public
 /**
  * Asks the server to understand an image with Cloudinary AI (captioning, then object detection with
  * auto-tagging) and store the result in the asset's contextual metadata. Images only.
- * `force` re-runs the detections on an asset that was analysed before.
+ * An image analysed before returns its stored result without spending detections.
  */
 export async function analyzeAsset(
   publicId: string,
   resourceType: ResourceType,
-  options: { force?: boolean; signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal } = {},
 ): Promise<AnalyzeResult> {
   if (resourceType !== 'image') {
     throw new BackendError('AI analysis runs on images. A video keeps its face and crop signals (fl_getinfo on the poster frame).', 400);
@@ -145,7 +145,7 @@ export async function analyzeAsset(
   const res = await fetch(`${assetPath(publicId)}/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resourceType, ...(options.force ? { force: true } : {}) }),
+    body: JSON.stringify({ resourceType }),
     cache: 'no-store',
     signal: options.signal,
   });

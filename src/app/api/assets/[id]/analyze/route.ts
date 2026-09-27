@@ -1,7 +1,7 @@
 import type { AiUnderstanding } from '@/lib/types';
 import { decodeAiContext, encodeAiContext, parseDetection } from '@/lib/cloudinary/ai';
 import { CTX } from '@/lib/cloudinary/record-context';
-import { cloudinaryErrorMessage, cloudinaryFor, isSameOrigin, jsonError, NOT_CONFIGURED, rateLimited, serverConfig } from '@/lib/server/cloudinary';
+import { cloudinaryErrorMessage, cloudinaryFor, forgetListMemo, isSameOrigin, jsonError, NOT_CONFIGURED, rateLimited, serverConfig } from '@/lib/server/cloudinary';
 import { customContext, loadVisualOpsAsset, NO_STORE, parsePublicId, readJsonBody, type AdminResource } from '../guards';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,7 @@ const WINDOW_MS = 10 * 60 * 1000;
 /**
  * POST /api/assets/[id]/analyze — Cloudinary AI understanding of one VisualOps image.
  *
- * `[id]` is the URL-encoded public_id. Body: `{ resourceType: 'image', force?: boolean }`.
+ * `[id]` is the URL-encoded public_id. Body: `{ resourceType: 'image' }`.
  *
  * Runs Cloudinary AI Content Analysis through the Admin API (synchronous `update`):
  *  1. `detection: 'captioning'`                    → a one-sentence caption of the frame
@@ -25,8 +25,8 @@ const WINDOW_MS = 10 * 60 * 1000;
  * (ai_caption, ai_objects, ai_tags, ai_model, analyzed_at), merged with the record keys already there,
  * so Cloudinary stays the system of record and every device reads the same understanding back.
  *
- * An asset analysed before returns its stored result (`cached: true`) without spending detections,
- * unless `force: true`. If one of the two detections fails, what the other returned is still saved
+ * An asset analysed before returns its stored result (`cached: true`) without spending detections.
+ * If one of the two detections fails, what the other returned is still saved
  * and the response carries a `warning`.
  *
  * 200 { ai, tags, cached?, warning? }  (`tags` = the asset's full tag list after auto-tagging)
@@ -46,7 +46,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const parsed = await readJsonBody(request);
   if ('error' in parsed) return parsed.error;
-  const { resourceType = 'image', force } = parsed.body;
+  const { resourceType = 'image' } = parsed.body;
   if (resourceType === 'video') {
     return jsonError(400, 'AI analysis runs on images. A video keeps its face and crop signals (fl_getinfo on the poster frame).');
   }
@@ -60,7 +60,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const previous = decodeAiContext(context);
 
   // Already understood: return what Cloudinary said then, instead of spending two more detections.
-  if (previous?.analyzedAt && force !== true) {
+  // This public route never re-runs an analysis, so a script can't drain the team's AI quota on one image;
+  // `npm run seed:cloudinary -- --force` re-analyses from the command line with the team's credentials.
+  if (previous?.analyzedAt) {
     return Response.json({ ai: previous, tags: beforeTags, cached: true }, NO_STORE);
   }
 
@@ -120,5 +122,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const warning = failures.length
     ? `${failures.join(' · ')}. Saved what the other detection returned.`
     : undefined;
+  forgetListMemo(); // the record's context and tags changed
   return Response.json({ ai, tags, ...(warning ? { warning } : {}) }, NO_STORE);
 }

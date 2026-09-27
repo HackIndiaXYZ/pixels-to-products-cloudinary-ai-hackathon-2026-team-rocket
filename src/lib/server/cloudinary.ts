@@ -63,35 +63,94 @@ export const NOT_CONFIGURED =
   'Cloudinary is not configured on the server. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET (see .env.example).';
 
 /**
- * Browser requests to the signing endpoint must come from this site. Blocks other websites from
- * using a visitor's browser to obtain signatures. (Non-browser clients are limited by the rate limiter.)
+ * State-changing requests (sign, analyze, remove) must come from a page on this site.
+ *
+ * Browsers send `Origin` on every POST and DELETE, so when it is present it decides: it must name this
+ * host (the request's own host, or the host the platform's proxy reports in `x-forwarded-host`). A
+ * `Sec-Fetch-Site` header can't override a foreign Origin. Without an Origin, only a browser's own
+ * same-origin request (`Sec-Fetch-Site: same-origin`) qualifies; a client that sends neither header is
+ * not a page on this site and is refused. Scripts can still forge headers, so the rate limits below and
+ * the routes' own guards (VisualOps tag, allow-lists, stored analyses) remain the real limits.
  */
 export function isSameOrigin(request: Request): boolean {
-  const site = request.headers.get('sec-fetch-site');
-  if (site) return site === 'same-origin' || site === 'none';
   const origin = request.headers.get('origin');
-  if (!origin) return true;
-  try {
-    return new URL(origin).host === new URL(request.url).host;
-  } catch {
-    return false;
+  if (origin) {
+    let host: string;
+    try {
+      host = new URL(origin).host;
+    } catch {
+      return false; // `Origin: null` (sandboxed frames, privacy redirects) or malformed
+    }
+    const own = new Set<string>();
+    try {
+      own.add(new URL(request.url).host);
+    } catch {}
+    const forwarded = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+    if (forwarded) own.add(forwarded);
+    return own.has(host);
   }
+  return request.headers.get('sec-fetch-site') === 'same-origin';
 }
 
-/** Best-effort, per-instance fixed-window rate limiter keyed by client address. */
-const windows = new Map<string, { start: number; count: number }>();
+/**
+ * Best-effort rate limiter keyed by route and client address, as a sliding window: the previous window's
+ * count is weighted by how much of it still overlaps, so a burst at a window boundary can't pass twice
+ * the limit. Refused requests are not counted, so a client that keeps retrying is let back in once its
+ * earlier requests age out.
+ *
+ * State lives in this server instance's memory: it survives between requests to a warm instance but is
+ * not shared across instances, so a platform-level limit (e.g. a Vercel Firewall rate-limit rule) is the
+ * global backstop.
+ */
+const windows = new Map<string, { start: number; count: number; previous: number }>();
+const MAX_TRACKED = 5000;
 export function rateLimited(request: Request, key: string, limit: number, windowMs: number): boolean {
+  // On Vercel the platform overwrites X-Forwarded-For with the client's address, so it can't be forged.
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'local';
   const id = `${key}:${ip}`;
   const now = Date.now();
-  const entry = windows.get(id);
-  if (!entry || now - entry.start > windowMs) {
-    windows.set(id, { start: now, count: 1 });
-    if (windows.size > 5000) windows.clear();
-    return false;
+  let entry = windows.get(id);
+  if (!entry) {
+    if (windows.size >= MAX_TRACKED) {
+      // Drop windows that have fully expired; only if every tracked client is active, start over.
+      for (const [k, w] of windows) if (now - w.start >= 2 * windowMs) windows.delete(k);
+      if (windows.size >= MAX_TRACKED) windows.clear();
+    }
+    entry = { start: now, count: 0, previous: 0 };
+    windows.set(id, entry);
   }
+  const elapsed = now - entry.start;
+  if (elapsed >= windowMs) {
+    // Roll forward: the window that just ended becomes `previous` (or nothing, after a long gap).
+    entry.previous = elapsed < 2 * windowMs ? entry.count : 0;
+    entry.start += Math.floor(elapsed / windowMs) * windowMs;
+    entry.count = 0;
+  }
+  const overlap = 1 - (now - entry.start) / windowMs;
+  if (entry.count + entry.previous * overlap >= limit) return true;
   entry.count += 1;
-  return entry.count > limit;
+  return false;
+}
+
+/**
+ * Per-instance memo for the record list (GET /api/assets): concurrent and repeated reads within `ttlMs`
+ * share one Search API call, so a burst of page loads (or a script) can't spend the account's hourly
+ * Admin API budget. A failed read is not kept. Writes made through these routes clear it.
+ */
+const listMemo = new Map<string, { at: number; value: Promise<unknown> }>();
+export function memoizedList<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const hit = listMemo.get(key);
+  if (hit && now - hit.at < ttlMs) return hit.value as Promise<T>;
+  const value = load();
+  listMemo.set(key, { at: now, value });
+  value.catch(() => {
+    if (listMemo.get(key)?.value === value) listMemo.delete(key);
+  });
+  return value;
+}
+export function forgetListMemo(): void {
+  listMemo.clear();
 }
 
 /** Cloudinary SDK errors carry `error.message` / `http_code`; keep only what is safe to surface. */

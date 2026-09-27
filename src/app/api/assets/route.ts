@@ -1,8 +1,16 @@
 import type { NextRequest } from 'next/server';
 import type { CloudResource } from '@/lib/cloudinary/backend';
-import { cloudinaryErrorMessage, cloudinaryFor, jsonError, NOT_CONFIGURED, rateLimited, serverConfig } from '@/lib/server/cloudinary';
+import { cloudinaryErrorMessage, cloudinaryFor, jsonError, memoizedList, NOT_CONFIGURED, rateLimited, serverConfig } from '@/lib/server/cloudinary';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * How long the full record list may be reused. Cloudinary's Search index itself trails writes by a few
+ * seconds, and the console keeps its own uploads and removals on screen until Search catches up, so a
+ * short reuse window changes nothing a visitor sees while capping Search API calls under load.
+ */
+const LIST_TTL_MS = 10_000;
+const LIST_CACHE_CONTROL = 'public, max-age=0, s-maxage=10, stale-while-revalidate=30';
 
 interface SearchResource {
   public_id: string;
@@ -62,8 +70,11 @@ export async function GET(request: NextRequest) {
   const cursor = params.get('cursor');
   const limit = Math.min(100, Math.max(1, Number(params.get('limit')) || 100));
   const types = '(resource_type:image OR resource_type:video)';
+  // The console's own read — the first page of the full list — is shared: by concurrent and repeated
+  // requests on this instance, and by the CDN (below). Exact lookups and other pages are always read live.
+  const sharedList = publicId === null && !cursor && limit === 100;
 
-  try {
+  const search = () => {
     let query = cloudinaryFor(config)
       .search.expression(
         publicId !== null
@@ -76,7 +87,11 @@ export async function GET(request: NextRequest) {
       .sort_by('created_at', 'desc')
       .max_results(publicId !== null ? 10 : limit);
     if (publicId === null && cursor && /^[A-Za-z0-9+/=_-]{1,512}$/.test(cursor)) query = query.next_cursor(cursor);
-    const result = (await query.execute()) as { resources?: SearchResource[]; next_cursor?: string; total_count?: number };
+    return query.execute() as Promise<{ resources?: SearchResource[]; next_cursor?: string; total_count?: number }>;
+  };
+
+  try {
+    const result = sharedList ? await memoizedList(`${config.cloudName}:${config.tag}`, LIST_TTL_MS, search) : await search();
 
     const resources: CloudResource[] = (result.resources ?? [])
       .filter((r) => r.resource_type === 'image' || r.resource_type === 'video')
@@ -105,7 +120,7 @@ export async function GET(request: NextRequest) {
         nextCursor: publicId !== null ? null : (result.next_cursor ?? null),
         total: publicId !== null ? resources.length : (result.total_count ?? resources.length),
       },
-      { headers: { 'Cache-Control': 'no-store' } },
+      { headers: { 'Cache-Control': sharedList ? LIST_CACHE_CONTROL : 'no-store' } },
     );
   } catch (error) {
     const { message, status } = cloudinaryErrorMessage(error);

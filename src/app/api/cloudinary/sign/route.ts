@@ -15,10 +15,17 @@ export const dynamic = 'force-dynamic';
 const MAX_BODY_BYTES = 4096;
 
 /**
+ * The photo and video formats an upload may have (Cloudinary's detected format). It is part of the signed
+ * parameters, so a signature can't be reused to store documents, archives or other files in the team's
+ * cloud. Covers phone, drone and CCTV output: JPEG/HEIC/PNG/WebP/AVIF/TIFF stills and MP4/MOV/WebM/MKV/AVI clips.
+ */
+const ALLOWED_FORMATS = 'jpg,jpeg,png,webp,heic,heif,avif,gif,tif,tiff,bmp,mp4,mov,m4v,webm,mkv,avi,3gp';
+
+/**
  * POST /api/cloudinary/sign — signs one upload to the team's Cloudinary cloud.
  *
  * The browser sends the record fields it wants attached (tags + context). The server
- * validates them, pins the VisualOps tag and the signed upload preset, adds a timestamp
+ * validates them, pins the VisualOps tag, the signed upload preset and the allowed media formats, adds a timestamp
  * and signs the exact parameter set with the API secret (Cloudinary's api_sign_request).
  * The browser then uploads the file directly to Cloudinary with those parameters, so file
  * bytes never pass through this server and the secret never reaches the browser.
@@ -54,6 +61,7 @@ export async function POST(request: Request) {
   const params: Record<string, string> = {
     timestamp: String(Math.round(Date.now() / 1000)),
     tags: tags.join(','),
+    allowed_formats: ALLOWED_FORMATS,
   };
   const encoded = encodeContext({ ...context });
   if (encoded) params.context = encoded;
