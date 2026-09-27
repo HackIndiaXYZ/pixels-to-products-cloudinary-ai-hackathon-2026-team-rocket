@@ -312,18 +312,6 @@ npm run start
 
 VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the server environment variables in the host's settings, not in the repository. Pages are static; the `/api` routes run on demand.
 
-## Demo script (≈3 min)
-
-| Time | Where | What to show |
-| --- | --- | --- |
-| **0:00** | Landing | The raw drone frame next to the Cloudinary evidence rendition, with live telemetry. Scroll the six-stage story; at the product preview choose *Launch console*. |
-| **0:30** | Ingest | Upload a real photo with a site, category and severity. The server signs the upload, and the file goes straight to Cloudinary. **Cloudinary AI captions and tags it live**: caption, objects with confidence, and auto-tags, all labelled *AI detected*. |
-| **1:05** | Ask (Ctrl/⌘ K) | Type *"sinkhole"*, then *"trucks"*. The hits come from Cloudinary's AI caption and object labels as well as the human fields, and the provenance badges show which is which. |
-| **1:30** | Inspector | **AI boxes vs the human annotation**: Cloudinary's detected objects next to the team's marked region, each with its provenance badge. Switch to the face-redacted rendition (`e_pixelate_faces`). |
-| **1:55** | Studio | *Run pipeline*: Ingest → Understand → Classify → Transform → Optimize → Index, each with its real latency and result. Load a generative preset and point out the *Generative* mark: previews only, never evidence. |
-| **2:25** | Incidents → Reports | Click a matrix cell, then *Report on these*. Generate: frames are requested from Cloudinary and the document shows human / AI / system badges. Download the JSON and read the **SHA-256** — it covers records + evidence URLs + delivery results; recompute with `sha256sum`. |
-| **2:50** | Close | The architecture: browser → small secure Next.js server (secret in env, guarded routes, security headers) → Cloudinary as the system of record. No database. |
-
 ## Data and honesty notes
 
 - **Three kinds of facts, always labelled.** *AI detected* (Cloudinary), *Human classified* (ingest, or team-written sample annotation) and *System derived* (computed or measured). The UI and every export keep them apart.
