@@ -9,9 +9,18 @@ import type { MediaAsset } from '@/lib/types';
  * edit in the app is rendered live by Cloudinary.
  *
  * The structured records (site, category, severity, finding text) are sample
- * annotations written by the VisualOps team for this dataset. They describe
- * only what is visible in each frame. Cloudinary's AI signals (g_auto subject
- * region, face landmarks) are fetched live and shown separately.
+ * annotations written by the VisualOps team for this dataset — human
+ * classified, and labelled so wherever they appear. They describe only what is
+ * visible in each frame. Cloudinary's AI signals that work on any public
+ * asset (fl_getinfo: g_auto subject crop, face detections) are fetched live and
+ * shown separately. Cloudinary AI Content Analysis (captioning, object
+ * detection, auto-tagging) needs the Admin API, so it runs only on the team's
+ * own cloud (POST /api/assets/[id]/analyze); these demo-cloud samples carry no
+ * `ai` field and nothing here is presented as an AI result.
+ *
+ * Every figure is Cloudinary's: dimensions, byte sizes and video durations
+ * match what Cloudinary reports for the stored originals (`owidth`, `obytes`,
+ * `odu` in Server-Timing), checked by `npm run verify:cloudinary`.
  *
  * Capture times are stored as offsets and materialised against the viewer's
  * clock so "today" and "this week" queries stay meaningful; those assets carry
@@ -68,6 +77,7 @@ const SAMPLES: SampleSpec[] = [
     width: 1920,
     height: 1080,
     bytes: 42142903,
+    duration: 21.647,
     posterOffset: 4,
     fileName: 'DJI_0412.MOV',
     title: 'Drone survey · demolition deck with exposed rebar',
@@ -354,6 +364,7 @@ const SAMPLES: SampleSpec[] = [
     width: 1280,
     height: 720,
     bytes: 7744493,
+    duration: 60.671,
     posterOffset: 3,
     fileName: 'walkthrough_line_c.mp4',
     title: 'Line C main aisle · site montage',
@@ -384,7 +395,7 @@ const SAMPLES: SampleSpec[] = [
     width: 1280,
     height: 720,
     bytes: 36094553,
-    duration: 90.8,
+    duration: 90.813,
     posterOffset: 3,
     fileName: 'VID_0922_1712.mp4',
     title: 'Laydown yard sweep · plant fleet',
@@ -427,6 +438,7 @@ const SAMPLES: SampleSpec[] = [
     width: 1920,
     height: 1080,
     bytes: 18316688,
+    duration: 14.014,
     posterOffset: 2,
     fileName: 'hotwork_bay4.mp4',
     title: 'Hot work · MIG welding in maintenance bay',
@@ -456,7 +468,7 @@ const SAMPLES: SampleSpec[] = [
     width: 1920,
     height: 1080,
     bytes: 645535,
-    duration: 10,
+    duration: 9.968,
     posterOffset: 1,
     fileName: 'CAM06_20251003_034849.mp4',
     title: 'Overnight CCTV · Pastry 06 production',
@@ -478,40 +490,6 @@ const SAMPLES: SampleSpec[] = [
         'Fixed CCTV view of the pastry production room at 03:48 (burned-in timestamp). The room is unoccupied and the equipment appears idle.',
       action: 'No action. Retained as the overnight baseline for this camera.',
     },
-  },
-  {
-    id: 'ref-sneaker',
-    publicId: 'shoes',
-    resourceType: 'image',
-    format: 'jpg',
-    width: 587,
-    height: 507,
-    bytes: 393265,
-    fileName: 'shoes.jpg',
-    title: 'Cloudinary sample · sneakers',
-    site: 'Cloudinary samples',
-    hoursAgo: 240,
-    capturedBy: 'Cloudinary demo cloud',
-    tags: ['sample', 'product', 'sneakers'],
-    collection: 'reference',
-  },
-  {
-    id: 'ref-dog-clip',
-    publicId: 'dog',
-    resourceType: 'video',
-    format: 'mp4',
-    width: 854,
-    height: 480,
-    bytes: 9094354,
-    duration: 13.4,
-    posterOffset: 2,
-    fileName: 'dog.mp4',
-    title: 'Cloudinary sample · video clip',
-    site: 'Cloudinary samples',
-    hoursAgo: 240,
-    capturedBy: 'Cloudinary demo cloud',
-    tags: ['sample', 'video'],
-    collection: 'reference',
   },
 ];
 

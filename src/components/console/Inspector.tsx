@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, ScanFace, TriangleAlert, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
-import type { MediaAsset } from '@/lib/types';
+import type { AiUnderstanding, MediaAsset } from '@/lib/types';
 import { CROP_LABEL, type CloudinaryInsight } from '@/lib/cloudinary/insights';
 import { IMAGE_ACCEPT } from '@/lib/cloudinary/probe';
 import { formatBytes, formatDuration } from '@/lib/format';
@@ -18,7 +18,7 @@ import { Segmented } from '@/components/ui/Segmented';
 import { cn } from '@/components/ui/cn';
 import { EvidenceRail } from './library/EvidenceRail';
 import { recordsPeople } from './library/model';
-import { VIEW_INFO, posterUrl, stageUrl, underlayUrl, type StillView } from './library/renditions';
+import { VIEW_INFO, aiObjectRegions, posterUrl, stageUrl, underlayUrl, type StillView } from './library/renditions';
 import { useLibrarySequence } from './library/sequence';
 import { useInsight } from './hooks';
 import { useConsoleActions, useConsoleData, useConsoleRoute, useConsoleUi, type View } from './store';
@@ -32,6 +32,8 @@ import { useConsoleActions, useConsoleData, useConsoleRoute, useConsoleUi, type 
  * The open record lives in the URL (#library/<id>), so Back closes it and a
  * link reopens it; the store owns that history (inspect / closeInspector).
  * While Ask is open over it, the Inspector ignores the keyboard entirely.
+ * Stage overlays each read as their source: the human annotation (solid, filled), Cloudinary AI
+ * object detections (corner brackets, with confidence), the g_auto crop (dashed) and face detections.
  */
 
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -255,6 +257,11 @@ function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: bo
   const [showAnnotation, setShowAnnotation] = useState(true);
   const [showFocus, setShowFocus] = useState(false);
   const [showFaces, setShowFaces] = useState(true);
+  const [showAi, setShowAi] = useState(true);
+  // A result the rail just fetched: shown at once, even before the store's record catches up.
+  const [freshAi, setFreshAi] = useState<AiUnderstanding | undefined>(undefined);
+  const ai = asset.ai ?? freshAi;
+  const aiRegions = useMemo(() => aiObjectRegions(ai), [ai]);
   const [duration, setDuration] = useState<number | undefined>(asset.duration);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [videoReady, setVideoReady] = useState(false);
@@ -325,9 +332,27 @@ function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: bo
                   label={asset.source === 'sample' ? 'Sample annotation' : 'Annotation'}
                   tone="annotation"
                   disabled={view === 'redacted'}
+                  title={asset.source === 'sample' ? 'Human classified · sample annotation' : 'Human classified · entered at ingest'}
                 />
               )}
-              <Toggle on={showFocus} onChange={setShowFocus} label={CROP_LABEL} tone="live" disabled={!insight?.focus} />
+              {aiRegions.length > 0 && (
+                <Toggle
+                  on={showAi}
+                  onChange={setShowAi}
+                  label={`AI objects · ${aiRegions.length}`}
+                  tone="ai"
+                  disabled={view === 'redacted'}
+                  title="AI detected · Cloudinary object detection (coco), with Cloudinary's confidence"
+                />
+              )}
+              <Toggle
+                on={showFocus}
+                onChange={setShowFocus}
+                label={CROP_LABEL}
+                tone="live"
+                disabled={!insight?.focus}
+                title="Where Cloudinary's g_auto placed a 1:1 crop (fl_getinfo)"
+              />
               {faces.length > 0 && (
                 <Toggle
                   on={showFaces}
@@ -335,6 +360,7 @@ function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: bo
                   label={`Face detections · ${faces.length}`}
                   tone="live"
                   disabled={view === 'redacted'}
+                  title="AI detected · Cloudinary face detection (fl_getinfo)"
                 />
               )}
             </div>
@@ -372,6 +398,10 @@ function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: bo
               ) : (
                 <>
                   <ProbedImage url={url} alt={asset.title} fit="cover" />
+                  {showAi && view !== 'redacted' && aiRegions.length > 0 && (
+                    // Under the human annotation, so the person's box always reads on top of the machine's.
+                    <RegionLayer regions={aiRegions} variant="ai" className="max-sm:[&_span]:hidden" />
+                  )}
                   {showAnnotation && finding?.region && view !== 'redacted' && <RegionLayer regions={[finding.region]} variant="annotation" />}
                   {showFocus && crop && <RegionLayer regions={[crop]} variant="focus" />}
                   {showFaces && view !== 'redacted' && faces.length > 0 && (
@@ -419,6 +449,22 @@ function InspectorBody({ asset, morph, titleId }: { asset: MediaAsset; morph: bo
         focusOn={showFocus}
         onToggleFocus={() => setShowFocus((v) => !v)}
         onShowRedacted={isVideo ? undefined : () => setView('redacted')}
+        ai={ai}
+        aiOn={showAi && view !== 'redacted'}
+        onToggleAi={
+          aiRegions.length > 0
+            ? () => {
+                if (view === 'redacted') {
+                  setView('original');
+                  setShowAi(true);
+                } else setShowAi((v) => !v);
+              }
+            : undefined
+        }
+        onAnalyzed={(next) => {
+          setFreshAi(next);
+          setShowAi(true);
+        }}
         titleId={titleId}
       />
     </div>
@@ -527,12 +573,15 @@ function Toggle({
   label,
   tone,
   disabled = false,
+  title,
 }: {
   on: boolean;
   onChange: (v: boolean) => void;
   label: string;
-  tone: 'annotation' | 'live';
+  /** annotation: human box · live: fl_getinfo signals · ai: Cloudinary AI object detections (bracket marker). */
+  tone: 'annotation' | 'live' | 'ai';
   disabled?: boolean;
+  title?: string;
 }) {
   const active = on && !disabled;
   return (
@@ -541,12 +590,18 @@ function Toggle({
       aria-pressed={active}
       disabled={disabled}
       onClick={() => onChange(!on)}
+      title={title}
       className={cn(
         'inline-flex h-7 items-center gap-1.5 rounded-[6px] border px-2 font-mono text-[10.5px] uppercase tracking-[0.04em] transition-colors disabled:cursor-not-allowed disabled:opacity-40',
         active ? 'border-line-strong bg-raised text-ink' : 'border-line text-ink-3 hover:text-ink-2',
       )}
     >
-      <span className={cn('h-1.5 w-1.5 rounded-full', active ? (tone === 'live' ? 'bg-signal' : 'bg-high') : 'bg-line-strong')} />
+      {tone === 'ai' ? (
+        // Hollow square: echoes the corner-bracket boxes the overlay draws.
+        <span className={cn('h-2 w-2 rounded-[1px] border-[1.5px]', active ? 'border-signal' : 'border-line-strong')} />
+      ) : (
+        <span className={cn('h-1.5 w-1.5 rounded-full', active ? (tone === 'live' ? 'bg-signal' : 'bg-high') : 'bg-line-strong')} />
+      )}
       {label}
     </button>
   );

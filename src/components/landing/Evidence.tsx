@@ -71,7 +71,7 @@ export function Evidence() {
               <p className="max-w-[58ch] text-[13px] leading-[1.65] text-ink-3">
                 Findings on this page are sample annotations written by the VisualOps team. The evidence frame — exposure correction,
                 pixelation of the faces Cloudinary detects, and the audit stamp — is rendered live by Cloudinary; the fingerprint is
-                computed in your browser from the report payload, built exactly as the console builds its export.
+                computed in your browser over this sample report payload, built by the same code the console uses for its exports.
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Link href="/console#reports" className="btn btn-primary btn-lg" data-cursor="OPEN">

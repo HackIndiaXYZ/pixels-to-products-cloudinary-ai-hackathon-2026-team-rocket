@@ -2,11 +2,19 @@ import type { MediaAsset, Severity } from '@/lib/types';
 import { CATEGORY_LABEL, SEVERITIES } from '@/lib/analytics';
 import { pluralize } from '@/lib/format';
 import {
+  EXAMPLE_QUERIES,
+  FIELD_LABEL,
+  FIELD_SOURCE,
+  keywordMatch,
+  matchSourceOf,
   matchedVariants,
   parseQuery,
   relatedTerms,
   runQuery,
   variantsOf,
+  type KeywordMatch,
+  type MatchField,
+  type MatchSource,
   type ParsedQuery,
   type SearchResult,
 } from '@/lib/search/query';
@@ -19,7 +27,9 @@ import {
  *
  *   01 Searching visual index  → the record pool (count of indexed field records)
  *   02 Matching metadata       → parseQuery(): explicit filters + keywords, and how
- *                                many records each side matches on its own
+ *                                many records each side matches on its own (keywords
+ *                                over human-classified fields and Cloudinary's AI
+ *                                understanding, each match attributed to its source)
  *   03 Filtering evidence      → runQuery(): filters and keywords combined
  *   04 Results                 → the ranked hits
  *
@@ -27,13 +37,26 @@ import {
  * presentation of each stage (≤ STAGE_MS) so the interpretation can be read.
  */
 
-export const ASK_EXAMPLES: readonly string[] = [
-  'Show high severity issues from Building B',
-  'Find construction photos containing cracks',
-  'Show all damaged equipment',
-  'Find all inspection media from this week',
-  'Critical open issues',
-];
+export const ASK_EXAMPLES: readonly string[] = EXAMPLE_QUERIES;
+
+const EXAMPLE_FINDING = 'VO-1042';
+
+/**
+ * The example questions for this workspace. The finding-ID example names VO-1042 when a record
+ * carries it; otherwise it names the most severe finding the workspace does have, so the example
+ * always demonstrates a real lookup instead of an empty result.
+ */
+export function examplesFor(pool: MediaAsset[]): string[] {
+  const annotated = pool.filter((a) => a.finding);
+  if (!annotated.length || annotated.some((a) => a.finding?.id === EXAMPLE_FINDING)) return [...ASK_EXAMPLES];
+  const rank: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+  const lead = [...annotated].sort(
+    (a, b) =>
+      rank[b.finding?.severity ?? 'low'] - rank[a.finding?.severity ?? 'low'] || +new Date(b.capturedAt) - +new Date(a.capturedAt),
+  )[0];
+  const id = lead?.finding?.id;
+  return ASK_EXAMPLES.map((q) => (id ? q.replace(EXAMPLE_FINDING, id) : q));
+}
 
 /** Presentational pacing per stage (the computation itself is synchronous). */
 export const STAGE_MS = 170;
@@ -67,6 +90,13 @@ export interface AskRun {
    * actually matched, so a match via "collapse" is never presented as a match on "damaged".
    */
   keywordVia: Record<string, KeywordVia>;
+  /**
+   * Per keyword: how many records (ignoring the structured filters) it reaches only through
+   * Cloudinary's AI understanding — caption, detected objects, auto-tags — and in which AI fields.
+   */
+  keywordAi: Record<string, { records: number; fields: MatchField[] }>;
+  /** Results that matched at least one keyword only through Cloudinary's AI understanding. */
+  aiHits: number;
   /** Number of structured constraints understood (severity, category, site, media, status, time). */
   filterCount: number;
   /** Measured wall time of parse + filter, in milliseconds. */
@@ -118,6 +148,7 @@ export function computeRun(id: number, query: string, pool: MediaAsset[], sites:
   const keywordIds = result.keywords.length ? idsOf(runQuery({ ...parsed, ...NO_FILTERS }, pool)) : null;
   const keywordReach: Record<string, number> = {};
   const keywordVia: Record<string, KeywordVia> = {};
+  const keywordAi: Record<string, { records: number; fields: MatchField[] }> = {};
   for (const keyword of result.keywords) {
     const { hits } = runQuery({ ...parsed, ...NO_FILTERS, keywords: [keyword], understood: [] }, pool);
     keywordReach[keyword] = hits.length;
@@ -125,9 +156,65 @@ export function computeRun(id: number, query: string, pool: MediaAsset[], sites:
       const seen = new Set(hits.flatMap((h) => matchedVariants(h.asset, keyword)));
       keywordVia[keyword] = { literal: seen.has(keyword), related: relatedTerms(keyword).filter((v) => seen.has(v)) };
     }
+    const aiOnly = hits
+      .map((h) => h.matches.find((m) => m.keyword === keyword))
+      .filter((m): m is KeywordMatch => m !== undefined && matchSourceOf(m) === 'ai');
+    if (aiOnly.length) keywordAi[keyword] = { records: aiOnly.length, fields: aiFieldsOf(aiOnly) };
   }
+  const aiHits = result.hits.filter((h) => h.matches.some((m) => matchSourceOf(m) === 'ai')).length;
   const ms = performance.now() - t0;
-  return { id, query, parsed, result, hitIds: idsOf(result), filterIds, keywordIds, keywordReach, keywordVia, filterCount, ms };
+  return {
+    id,
+    query,
+    parsed,
+    result,
+    hitIds: idsOf(result),
+    filterIds,
+    keywordIds,
+    keywordReach,
+    keywordVia,
+    keywordAi,
+    aiHits,
+    filterCount,
+    ms,
+  };
+}
+
+const AI_FIELDS: MatchField[] = ['ai-caption', 'ai-object', 'ai-tag'];
+
+/** The AI fields a set of matches used, in display order. */
+function aiFieldsOf(matches: KeywordMatch[]): MatchField[] {
+  const used = new Set(matches.flatMap((m) => m.fields));
+  return AI_FIELDS.filter((f) => used.has(f));
+}
+
+/** "caption", "detected object + auto-tag" — the fields a match used, worded for the interface. */
+export function fieldsLabel(fields: MatchField[]): string {
+  return fields.map((f) => FIELD_LABEL[f]).join(' + ');
+}
+
+/** A keyword's match on a record, split by source: which human fields and which AI fields it matched. */
+export interface SourcedMatch {
+  keyword: string;
+  /** How the term was matched: “crack”, or “damaged” via “collapse”. */
+  label: string;
+  source: MatchSource | 'both';
+  humanFields: MatchField[];
+  aiFields: MatchField[];
+}
+
+/** Every keyword a record matches, with where it matched (human-classified fields vs Cloudinary's AI). */
+export function sourcedMatches(asset: MediaAsset, keywords: string[]): SourcedMatch[] {
+  return keywords
+    .map((keyword) => keywordMatch(asset, keyword))
+    .filter((m) => m.variants.length > 0)
+    .map((m) => ({
+      keyword: m.keyword,
+      label: matchLabel(asset, m.keyword),
+      source: matchSourceOf(m),
+      humanFields: m.fields.filter((f) => FIELD_SOURCE[f] === 'human'),
+      aiFields: m.fields.filter((f) => FIELD_SOURCE[f] === 'ai'),
+    }));
 }
 
 /** Related terms searched for the run's keywords, e.g. `{ keyword: 'damaged', related: ['damage', 'broken', …] }`. */
@@ -201,16 +288,30 @@ export interface Interpretation {
   note?: string;
   /** Related terms searched along with a keyword (disclosed on the chip). */
   related?: string[];
+  /** For keywords: records reached only through Cloudinary's AI understanding (disclosed on the chip). */
+  ai?: number;
 }
+
+/** What a keyword is matched against (the keyword chips' tooltip). */
+export const KEYWORD_FIELDS =
+  'Matched against human-classified tags, titles, finding IDs, file names and locations, and Cloudinary AI captions, detected objects and auto-tags';
 
 /** The question as VisualOps understood it — shown as chips, never applied silently. */
 export function interpret(run: AskRun): Interpretation[] {
   const { parsed, result } = run;
   const out: Interpretation[] = [];
   parsed.severities.forEach((s) => out.push({ key: `sev-${s}`, label: `severity: ${s}`, tone: 'filter' }));
-  parsed.categories.forEach((c) =>
-    out.push({ key: `cat-${c}`, label: `category: ${CATEGORY_LABEL[c].toLowerCase()}`, tone: 'filter' }),
-  );
+  parsed.categories.forEach((c) => {
+    const nouns = parsed.impliedCategories?.[c];
+    out.push({
+      key: `cat-${c}`,
+      label: `category: ${CATEGORY_LABEL[c].toLowerCase()}`,
+      tone: 'filter',
+      note: nouns?.length
+        ? `Implied by ${nouns.map((n) => `“${n}”`).join(', ')} — records that mention ${nouns.length === 1 ? 'it' : 'them'} (human classified or AI detected) are kept whatever their category`
+        : 'Matched against each finding’s human-classified category',
+    });
+  });
   parsed.sites.forEach((s) => out.push({ key: `site-${s}`, label: `site: ${s}`, tone: 'filter' }));
   parsed.mediaTypes.forEach((m) =>
     out.push({ key: `media-${m}`, label: `media: ${m === 'image' ? 'photos' : 'videos'}`, tone: 'filter' }),
@@ -230,8 +331,18 @@ export function interpret(run: AskRun): Interpretation[] {
           ? `Matches ${records} only through related terms (${via.related.join(', ')}), none of which match the filters`
           : `Mentioned by ${records}${via?.related.length ? ` (with related terms: ${via.related.join(', ')})` : ''}, none of which match the filters`;
     } else if (unmatched) note = related.length ? 'No record mentions this word or its related terms' : 'No record mentions this word';
-    else note = related.length ? `Also searched: ${related.join(', ')}` : 'Matched against tags, titles, file names and locations';
-    out.push({ key: `kw-${k}`, label: `“${k}”`, tone: unmatched ? 'unmatched' : 'keyword', note, related: related.length ? related : undefined });
+    else note = related.length ? `Also searched: ${related.join(', ')}` : KEYWORD_FIELDS;
+    const ai = unmatched ? undefined : run.keywordAi[k];
+    if (ai) note += ` · ${pluralize(ai.records, 'record')} only through Cloudinary AI (${fieldsLabel(ai.fields)})`;
+    out.push({
+      key: `kw-${k}`,
+      // Finding IDs read as written on the record (VO-1042); matching is case-insensitive either way.
+      label: `“${/^vo-[a-z0-9-]+$/.test(k) ? k.toUpperCase() : k}”`,
+      tone: unmatched ? 'unmatched' : 'keyword',
+      note,
+      related: related.length ? related : undefined,
+      ai: ai?.records,
+    });
   });
   return out;
 }
@@ -248,7 +359,17 @@ export function indexOrder(pool: MediaAsset[], cap = STRIP_CAP): MediaAsset[] {
  */
 export function termMatches(text: string, keywords: string[], probe: MediaAsset): boolean {
   if (!keywords.length || text.length < 2) return false;
-  const candidate: MediaAsset = { ...probe, tags: [text], title: '', fileName: '', site: '', zone: undefined, finding: undefined };
+  // Only the text itself: without the probe's AI understanding, or every word would light up.
+  const candidate: MediaAsset = {
+    ...probe,
+    tags: [text],
+    title: '',
+    fileName: '',
+    site: '',
+    zone: undefined,
+    finding: undefined,
+    ai: undefined,
+  };
   return keywords.some(
     (keyword) => runQuery({ raw: '', understood: [], keywords: [keyword], ...NO_FILTERS }, [candidate]).hits.length > 0,
   );

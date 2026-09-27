@@ -62,13 +62,15 @@ export function FilterBar({
               >
                 <SeverityDot severity={s} className={cn(anyOn && !on && 'opacity-50')} />
                 {titleCase(s)}{' '}
-                <span className={cn('num font-mono text-[11px]', on ? 'text-ink' : 'text-ink-3')}>{counts[s]}</span>
+                <span className={cn('num font-mono text-[11px]', on ? 'text-ink' : 'text-ink-3')} title="System derived · findings counted in scope">
+                  {counts[s]}
+                </span>
               </button>
             );
           })}
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <span className="font-mono text-[11px] text-ink-3" aria-live="polite" aria-atomic="true">
+          <span className="font-mono text-[11px] text-ink-3" aria-live="polite" aria-atomic="true" title="System derived · findings counted in view">
             <span className="num text-ink-2">{inView}</span> in view
           </span>
           {filtersActive(filters) && (

@@ -1,8 +1,9 @@
 'use client';
 
 import { Code2, Download, ExternalLink, Film, RotateCcw } from 'lucide-react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaAsset } from '@/lib/types';
+import { DEMO_CLOUD } from '@/lib/cloudinary/config';
 import { displayUrl, originalUrl, refOf, thumbUrl } from '@/lib/cloudinary/media';
 import {
   INTEGRITY_HELP,
@@ -55,7 +56,7 @@ function ratio(value: string | number | boolean | undefined): number | undefined
  * Inspector over it does not re-render the pipeline, viewer or machine.
  */
 export const StudioView = memo(function StudioView() {
-  const { now, assets } = useConsoleData();
+  const { now, assets, backend, userAssets, updateCloudAsset, addUserAssets } = useConsoleData();
   const { studioAssetId, studioSteps, setStudioAsset, setStudioSteps } = useConsoleRoute();
   const { inspect, setExportOpen } = useConsoleActions();
   const asset = assets.find((a) => a.id === studioAssetId) ?? assets[0];
@@ -90,12 +91,20 @@ export const StudioView = memo(function StudioView() {
     pipelineExtension(asset),
   );
 
-  const field = assets.filter((a) => a.collection !== 'reference');
-  const reference = assets.filter((a) => a.collection === 'reference');
   const presets = PRESETS.filter((p) => p.resourceType === asset.resourceType);
+  // The team's own cloud (not the demo cloud): the machine can run Cloudinary AI Content Analysis and a Search lookup.
+  const team = Boolean(backend?.configured && backend.cloudName && asset.cloudName === backend.cloudName && asset.cloudName !== DEMO_CLOUD);
+  // New AI understanding goes straight into the record in place, and into this browser's cached copy when there is one.
+  const onAnalysed = useCallback(
+    (next: MediaAsset) => {
+      updateCloudAsset(next);
+      if (userAssets.some((a) => a.id === next.id)) addUserAssets([next]);
+    },
+    [updateCloudAsset, userAssets, addUserAssets],
+  );
 
   const loadPreset = (preset: PipelinePreset) => {
-    setStudioSteps(presetSteps(preset));
+    setStudioSteps(presetSteps(preset, asset));
     setPreviewIndex(null);
     setPanel('pipeline');
   };
@@ -122,9 +131,17 @@ export const StudioView = memo(function StudioView() {
         }
       />
 
-      <AssetPicker field={field} reference={reference} selectedId={asset.id} onSelect={selectAsset} />
+      <AssetPicker assets={assets} selectedId={asset.id} onSelect={selectAsset} />
 
-      <PipelineMachine key={`${asset.id}|${fullPipelineUrl}`} asset={asset} steps={steps} assets={assets} now={now} />
+      <PipelineMachine
+        key={`${asset.id}|${fullPipelineUrl}`}
+        asset={asset}
+        steps={steps}
+        assets={assets}
+        now={now}
+        team={team}
+        onAnalysed={onAnalysed}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="min-w-0 space-y-4">
@@ -245,16 +262,11 @@ export const StudioView = memo(function StudioView() {
                       >
                         <span className="flex items-center justify-between gap-2">
                           <span className="text-[13px] font-medium">{preset.name}</span>
-                          <span className="flex gap-1">
-                            {preset.suggestedFor?.includes(asset.id) && <span className="chip text-signal">Suggested</span>}
-                            {preset.audience === 'general' && <span className="chip">General</span>}
-                          </span>
+                          {preset.suggestedFor?.includes(asset.id) && <span className="chip text-signal">Suggested</span>}
                         </span>
                         <span className="mt-0.5 block text-[12px] leading-snug text-ink-3">{preset.description}</span>
                         <span className="mt-1.5 block truncate font-mono text-[10.5px] text-ink-3">
-                          {presetSteps(preset)
-                            .map((s) => s.kind)
-                            .join(' → ')}
+                          {preset.steps.map((s) => s.kind).join(' → ')}
                         </span>
                       </button>
                     </li>
@@ -290,20 +302,18 @@ const FADE_START = 20;
 const FADE_END = 36;
 
 /**
- * Every record plus the reference samples. At ≥1024 px the tiles wrap into two
- * rows that hold all of them (slightly smaller tiles while the content column is
- * narrow, 1024–1279 px). Narrower, the strip scrolls sideways: edge fades mark the
+ * Every record in the workspace. At ≥1024 px the tiles wrap into rows that hold
+ * all of them (slightly smaller tiles while the content column is narrow,
+ * 1024–1279 px). Narrower, the strip scrolls sideways: edge fades mark the
  * hidden side, a vertical wheel scrolls it while it can move (then the page
  * takes over), and the selected tile is brought into view.
  */
 function AssetPicker({
-  field,
-  reference,
+  assets,
   selectedId,
   onSelect,
 }: {
-  field: MediaAsset[];
-  reference: MediaAsset[];
+  assets: MediaAsset[];
   selectedId: string;
   onSelect: (asset: MediaAsset) => void;
 }) {
@@ -380,14 +390,7 @@ function AssetPicker({
         ref={stripRef}
         className="scrollbar-none -my-1 flex gap-1.5 overflow-x-auto py-1 [mask-image:linear-gradient(to_right,transparent,#000_var(--fade-l,0px),#000_calc(100%_-_var(--fade-r,0px)),transparent)] lg:flex-wrap lg:overflow-visible lg:[mask-image:none]"
       >
-        {field.map(tile)}
-        {reference.length > 0 && (
-          <div className="flex h-[58px] shrink-0 flex-col justify-center border-l border-line pl-2.5 pr-1.5 lg:h-[46px] lg:w-[72px] lg:pl-2 lg:pr-0 xl:h-[58px] xl:w-auto xl:pl-2.5 xl:pr-1.5">
-            <span className="label text-[9.5px]">Samples</span>
-            <span className="mt-0.5 whitespace-nowrap text-[11px] leading-tight text-ink-3 lg:whitespace-normal xl:whitespace-nowrap">try generative</span>
-          </div>
-        )}
-        {reference.map(tile)}
+        {assets.map(tile)}
       </div>
     </div>
   );

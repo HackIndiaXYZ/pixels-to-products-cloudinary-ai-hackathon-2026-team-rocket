@@ -9,7 +9,8 @@ import { thumbUrl } from '@/lib/cloudinary/media';
 import { formatBytes, formatDuration } from '@/lib/format';
 import { CloudImage } from '@/components/media/CloudImage';
 import { SEVERITY_COLOR, SeverityDot } from '@/components/ui/badges';
-import { captureTimeDisplay } from './model';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
+import { aiOnlyTerms, captureTimeDisplay } from './model';
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 const HEAD = ['Media', 'Finding', 'Severity', 'Category', 'Location', 'Captured', 'Original'];
@@ -17,16 +18,21 @@ const HEAD = ['Media', 'Finding', 'Severity', 'Category', 'Location', 'Captured'
 /**
  * Dense list view. The thumbnail shares the `media-<id>` layoutId with the
  * Inspector stage, so opening from a row morphs the frame just like the grid.
+ * A record Cloudinary's AI has described shows its caption under the finding,
+ * marked AI; when the search box matched only that AI text, the row says so.
  */
 export const LibraryList = memo(function LibraryList({
   assets,
   now,
+  query = '',
   selectedId,
   onOpen,
   onIntent,
 }: {
   assets: MediaAsset[];
   now: number;
+  /** The Library search box, to label matches found only in Cloudinary's AI understanding. */
+  query?: string;
   selectedId: string | null;
   onOpen: (asset: MediaAsset) => void;
   onIntent: (asset: MediaAsset, stage: 'intent' | 'commit') => void;
@@ -45,7 +51,15 @@ export const LibraryList = memo(function LibraryList({
         </thead>
         <tbody className="divide-y divide-line">
           {assets.map((asset) => (
-            <Row key={asset.id} asset={asset} now={now} selected={selectedId === asset.id} onOpen={onOpen} onIntent={onIntent} />
+            <Row
+              key={asset.id}
+              asset={asset}
+              now={now}
+              aiMatch={aiOnlyTerms(asset, query).join(' ')}
+              selected={selectedId === asset.id}
+              onOpen={onOpen}
+              onIntent={onIntent}
+            />
           ))}
         </tbody>
       </table>
@@ -56,12 +70,15 @@ export const LibraryList = memo(function LibraryList({
 const Row = memo(function Row({
   asset,
   now,
+  aiMatch,
   selected,
   onOpen,
   onIntent,
 }: {
   asset: MediaAsset;
   now: number;
+  /** Search terms this row matched only in Cloudinary's AI understanding, space-separated ('' for none). */
+  aiMatch: string;
   selected: boolean;
   onOpen: (asset: MediaAsset) => void;
   onIntent: (asset: MediaAsset, stage: 'intent' | 'commit') => void;
@@ -70,6 +87,7 @@ const Row = memo(function Row({
   const finding = asset.finding;
   const isVideo = asset.resourceType === 'video';
   const captured = captureTimeDisplay(asset, now);
+  const aiTerms = aiMatch ? aiMatch.split(' ') : [];
   return (
     <tr
       data-cursor="OPEN"
@@ -129,6 +147,24 @@ const Row = memo(function Row({
           {finding?.title ?? asset.title}
         </button>
         {finding && <span className="block font-mono text-[10.5px] text-ink-3">{finding.id}</span>}
+        {asset.ai?.caption && (
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5" title={`AI detected · Cloudinary caption: ${asset.ai.caption}`}>
+            {aiTerms.length > 0 ? (
+              <ProvenanceBadge kind="ai" detail="matched" className="py-0 text-[9.5px]" />
+            ) : (
+              <span className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.06em] text-signal/80">
+                ai<span className="sr-only"> detected caption:</span>
+              </span>
+            )}
+            <span className="min-w-0 truncate text-[11.5px] text-ink-3">{asset.ai.caption}</span>
+          </span>
+        )}
+        {!asset.ai?.caption && aiTerms.length > 0 && (
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
+            <ProvenanceBadge kind="ai" detail="matched" className="py-0 text-[9.5px]" />
+            <span className="min-w-0 truncate font-mono text-[10.5px] text-ink-3">{aiTerms.map((t) => `“${t}”`).join(' ')} · objects / auto-tags</span>
+          </span>
+        )}
       </td>
       <td className="px-3 py-2">
         {finding ? (

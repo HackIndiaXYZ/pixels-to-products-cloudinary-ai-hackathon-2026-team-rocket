@@ -6,6 +6,7 @@ import type { Category, Severity } from '@/lib/types';
 import { CATEGORIES, CATEGORY_LABEL, type MatrixCell } from '@/lib/analytics';
 import { pluralize, titleCase } from '@/lib/format';
 import { SEVERITY_COLOR, SeverityDot } from '@/components/ui/badges';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { cn } from '@/components/ui/cn';
 import { useDeviceTier, useReducedMotionPref } from '@/components/motion/hooks';
 import { EASE } from './model';
@@ -137,8 +138,11 @@ export function RiskMatrix({
         <h2 id="risk-matrix-title" className="text-[13.5px] font-semibold">
           Risk matrix
         </h2>
-        <span className="label">
-          <span className="num">{total}</span> in scope
+        <span className="flex items-center gap-2">
+          <ProvenanceBadge kind="system" detail="counted" />
+          <span className="label">
+            <span className="num">{total}</span> in scope
+          </span>
         </span>
       </div>
       <p id="risk-matrix-help" className="mt-1 text-[12px] text-ink-3">
@@ -299,8 +303,8 @@ export function RiskMatrix({
         </div>
       </div>
       <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
-        Counts of findings, not likelihood. Every filter applies except the matrix’s own axes. Severity and category come
-        from each capture’s structured record — sample annotations for the bundled dataset.
+        Counts of findings, not likelihood — system derived from each record’s human-classified severity and category
+        (sample annotations or entered at ingest), never from AI. Every filter applies except the matrix’s own axes.
       </p>
     </aside>
   );

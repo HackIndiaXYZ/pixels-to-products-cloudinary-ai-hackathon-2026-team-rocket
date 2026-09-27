@@ -70,6 +70,11 @@ export interface FieldDef {
   max?: number;
   step?: number;
   placeholder?: string;
+  /**
+   * Text fields that name something in the frame: the editor shows an example taken from the
+   * asset itself (its AI-detected objects, else its record tags) instead of a fixed sample's object.
+   */
+  hint?: 'object';
   help?: string;
 }
 
@@ -179,6 +184,36 @@ export function expandStampText(template: string, asset: MediaAsset): string {
     .replace(/\{file\}/g, asset.fileName)
     .replace(/[,/]/g, ' ')
     .trim();
+}
+
+/** Record tags that describe a condition, place or process rather than an object you could point at. */
+const NOT_AN_OBJECT =
+  /hazard|resolution|infrastructure|construction|housekeeping|maintenance|inventory|equipment|quality|monitoring|production|overnight|electrification|electrical|aerial|drone|cctv|work-at-height|fleet|montage|repair|intake|pre-trip|check-in|receiving|stores|collapse|crack|corrosion|rust|debris|void|cleaning|demolition|welding|hot-work|lobby|ppe|washroom|plant|kitchen|walkway|people|structural|safety|facilities/;
+
+export interface ObjectHint {
+  /** An object name, e.g. "truck" or "gas cylinder". */
+  text: string;
+  /** `ai`: detected in this frame by Cloudinary; `human`: from the record's own tags. */
+  source: 'ai' | 'human';
+}
+
+/**
+ * Example objects for generative prompts, taken from the asset itself so a placeholder never
+ * suggests another frame's object: what Cloudinary's AI detected in this frame first (most
+ * confident first), then the record's human tags that name an object.
+ */
+export function objectHints(asset: MediaAsset): ObjectHint[] {
+  const out: ObjectHint[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string, source: ObjectHint['source']) => {
+    const text = raw.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    out.push({ text, source });
+  };
+  asset.ai?.objects.forEach((o) => add(o.label, 'ai'));
+  asset.tags.filter((t) => !NOT_AN_OBJECT.test(t) && !asset.ai?.tags.includes(t)).forEach((t) => add(t, 'human'));
+  return out;
 }
 
 /**
@@ -365,13 +400,22 @@ export const STEP_DEFINITIONS: Record<StepKind, StepDefinition> = {
     group: 'Generative',
     integrity: 'generative',
     appliesTo: ['image'],
-    defaults: { prompt: 'clean concrete depot floor in soft overcast daylight' },
-    fields: [{ key: 'prompt', label: 'Prompt', type: 'text', placeholder: 'Describe the new background' }],
+    // Empty by default: without a prompt Cloudinary chooses a background from the image itself.
+    defaults: { prompt: '' },
+    fields: [
+      {
+        key: 'prompt',
+        label: 'Prompt (optional)',
+        type: 'text',
+        placeholder: 'Describe the new background',
+        help: 'Leave empty and Cloudinary picks a background that suits the image.',
+      },
+    ],
     build: (p) => {
       const prompt = encodePrompt(str(p.prompt));
       return prompt ? `e_gen_background_replace:prompt_${prompt}` : 'e_gen_background_replace';
     },
-    summarize: (p) => `“${str(p.prompt)}”`,
+    summarize: (p) => (str(p.prompt) ? `“${str(p.prompt)}”` : 'Cloudinary’s choice'),
   },
   gen_fill: {
     kind: 'gen_fill',
@@ -405,10 +449,11 @@ export const STEP_DEFINITIONS: Record<StepKind, StepDefinition> = {
     group: 'Generative',
     integrity: 'generative',
     appliesTo: ['image'],
-    defaults: { from: 'mop', to: 'yellow wet floor warning sign', preserveGeometry: false },
+    // Starts empty: the object depends on the frame (the editor suggests one from the asset).
+    defaults: { from: '', to: '', preserveGeometry: false },
     fields: [
-      { key: 'from', label: 'Replace', type: 'text', placeholder: 'object to replace' },
-      { key: 'to', label: 'With', type: 'text', placeholder: 'replacement' },
+      { key: 'from', label: 'Replace', type: 'text', placeholder: 'object to replace', hint: 'object' },
+      { key: 'to', label: 'With', type: 'text', placeholder: 'describe the replacement' },
       { key: 'preserveGeometry', label: 'Preserve shape', type: 'toggle' },
     ],
     build: (p) => {
@@ -426,9 +471,9 @@ export const STEP_DEFINITIONS: Record<StepKind, StepDefinition> = {
     group: 'Generative',
     integrity: 'generative',
     appliesTo: ['image'],
-    defaults: { prompt: 'hard hat', color: 'FF6A00' },
+    defaults: { prompt: '', color: 'FF6A00' },
     fields: [
-      { key: 'prompt', label: 'Object', type: 'text', placeholder: 'what to recolour' },
+      { key: 'prompt', label: 'Object', type: 'text', placeholder: 'what to recolour', hint: 'object' },
       { key: 'color', label: 'Colour', type: 'color' },
     ],
     build: (p) => {
@@ -445,8 +490,8 @@ export const STEP_DEFINITIONS: Record<StepKind, StepDefinition> = {
     group: 'Generative',
     integrity: 'generative',
     appliesTo: ['image'],
-    defaults: { prompt: 'mop bucket' },
-    fields: [{ key: 'prompt', label: 'Remove', type: 'text', placeholder: 'object to remove' }],
+    defaults: { prompt: '' },
+    fields: [{ key: 'prompt', label: 'Remove', type: 'text', placeholder: 'object to remove', hint: 'object' }],
     build: (p) => {
       const prompt = encodePrompt(str(p.prompt));
       return prompt ? `e_gen_remove:prompt_${prompt}` : null;
@@ -687,6 +732,12 @@ export const INTEGRITY_HELP: Record<Integrity, string> = {
 export interface PresetStep {
   kind: StepKind;
   params?: StepParams;
+  /**
+   * Parameters written for the frames in the preset's `suggestedFor` (e.g. the object visible in
+   * that frame). Any other asset starts from the step's own defaults, so a prompt meant for one
+   * frame is never applied to another.
+   */
+  forSuggested?: StepParams;
 }
 
 export interface PipelinePreset {
@@ -697,7 +748,6 @@ export interface PipelinePreset {
   steps: PresetStep[];
   /** Asset IDs this preset is designed for (shown first when picking). */
   suggestedFor?: string[];
-  audience: 'operations' | 'general';
 }
 
 export const PRESETS: PipelinePreset[] = [
@@ -706,7 +756,6 @@ export const PRESETS: PipelinePreset[] = [
     name: 'Evidence enhance',
     description: 'Smart crop, exposure and sharpening — nothing generated. The default for inspection records.',
     resourceType: 'image',
-    audience: 'operations',
     steps: [
       { kind: 'smart_crop', params: { aspect: '16:9', gravity: 'auto', width: 1600 } },
       { kind: 'improve' },
@@ -720,7 +769,6 @@ export const PRESETS: PipelinePreset[] = [
     name: 'Privacy redaction',
     description: 'Pixelates the faces Cloudinary detects before media leaves the team.',
     resourceType: 'image',
-    audience: 'operations',
     // Only where Cloudinary actually detects faces (fl_getinfo); the fleet check-in frame returns none.
     suggestedFor: ['vo-crew-ppe'],
     steps: [
@@ -735,7 +783,6 @@ export const PRESETS: PipelinePreset[] = [
     name: 'Audit stamp',
     description: 'Report-ready frame with the finding ID, severity and capture date burned in (SAMPLE on sample-dataset media).',
     resourceType: 'image',
-    audience: 'operations',
     steps: [
       { kind: 'smart_crop', params: { aspect: '16:9', gravity: 'auto', width: 1600 } },
       { kind: 'improve' },
@@ -749,7 +796,6 @@ export const PRESETS: PipelinePreset[] = [
     name: 'Low-res recovery',
     description: 'Generative restore and AI upscale for unusable captures. Output is marked generative.',
     resourceType: 'image',
-    audience: 'operations',
     suggestedFor: ['vo-tool-crib', 'vo-wet-floor'],
     steps: [{ kind: 'gen_restore' }, { kind: 'upscale' }, { kind: 'auto_quality' }, { kind: 'auto_format' }],
   },
@@ -758,19 +804,23 @@ export const PRESETS: PipelinePreset[] = [
     name: 'Asset register cutout',
     description: 'Background removed for a clean equipment or fleet register entry.',
     resourceType: 'image',
-    audience: 'operations',
     suggestedFor: ['vo-fleet-checkin', 'vo-tool-crib'],
     steps: [{ kind: 'remove_background' }, { kind: 'resize', params: { width: 1200 } }, { kind: 'auto_format' }],
   },
   {
     id: 'remediation-preview',
     name: 'Remediation preview',
-    description: 'Visualises the corrective action with generative replace — for briefings, never as evidence.',
+    description:
+      'Visualises the corrective action with generative replace — for briefings, never as evidence. Name what to replace in the step; it is pre-filled only for the wet-floor sample.',
     resourceType: 'image',
-    audience: 'operations',
     suggestedFor: ['vo-wet-floor'],
     steps: [
-      { kind: 'gen_replace', params: { from: 'mop', to: 'yellow wet floor warning sign', preserveGeometry: false } },
+      {
+        kind: 'gen_replace',
+        params: { preserveGeometry: false },
+        // The wet-floor frame shows a mop and no warning sign; other frames start with empty prompts.
+        forSuggested: { from: 'mop', to: 'yellow wet floor warning sign' },
+      },
       { kind: 'auto_quality' },
       { kind: 'auto_format' },
     ],
@@ -780,7 +830,6 @@ export const PRESETS: PipelinePreset[] = [
     name: 'Field clip',
     description: 'Trimmed, resized and transcoded for playback on site connections.',
     resourceType: 'video',
-    audience: 'operations',
     steps: [
       { kind: 'trim', params: { start: 0, duration: 8 } },
       { kind: 'resize', params: { width: 960 } },
@@ -793,7 +842,6 @@ export const PRESETS: PipelinePreset[] = [
     name: 'Vertical brief',
     description: 'AI subject-tracking reframe to 9:16 for mobile briefings.',
     resourceType: 'video',
-    audience: 'operations',
     steps: [
       { kind: 'trim', params: { start: 0, duration: 6 } },
       { kind: 'smart_reframe', params: { aspect: '9:16' } },
@@ -806,44 +854,18 @@ export const PRESETS: PipelinePreset[] = [
     name: 'AI highlights',
     description: 'Cloudinary AI condenses long footage into its most relevant seconds.',
     resourceType: 'video',
-    audience: 'operations',
     steps: [
       { kind: 'ai_preview', params: { duration: 6 } },
       { kind: 'resize', params: { width: 960 } },
       { kind: 'auto_quality' },
     ],
   },
-  {
-    id: 'product-studio',
-    name: 'Product studio',
-    description: 'Background removal, generative marble backdrop and a square canvas — the classic e-commerce chain.',
-    resourceType: 'image',
-    audience: 'general',
-    suggestedFor: ['ref-sneaker'],
-    steps: [
-      { kind: 'gen_background_replace', params: { prompt: 'polished white marble countertop with soft warm studio light' } },
-      { kind: 'gen_fill', params: { aspect: '1:1', width: 1200, prompt: '' } },
-      { kind: 'auto_quality' },
-      { kind: 'auto_format' },
-    ],
-  },
-  {
-    id: 'creative-recolor',
-    name: 'Colourway',
-    description: 'Generative recolour of a described object while keeping its shading.',
-    resourceType: 'image',
-    audience: 'general',
-    suggestedFor: ['ref-sneaker'],
-    steps: [
-      { kind: 'gen_recolor', params: { prompt: 'shoes', color: '2F6BFF' } },
-      { kind: 'auto_quality' },
-      { kind: 'auto_format' },
-    ],
-  },
 ];
 
-export function presetSteps(preset: PipelinePreset): PipelineStep[] {
-  return preset.steps.map((s) => createStep(s.kind, s.params));
+/** A preset's steps for `asset`: frame-specific parameters apply only to the assets the preset suggests. */
+export function presetSteps(preset: PipelinePreset, asset?: Pick<MediaAsset, 'id'>): PipelineStep[] {
+  const suggested = Boolean(asset && preset.suggestedFor?.includes(asset.id));
+  return preset.steps.map((s) => createStep(s.kind, suggested ? { ...s.params, ...s.forSuggested } : s.params));
 }
 
 export function defaultPresetFor(asset: MediaAsset): PipelinePreset {

@@ -16,12 +16,13 @@ import {
 } from 'react';
 import type { CloudSettings, MediaAsset } from '@/lib/types';
 import { buildSampleAssets } from '@/lib/data/dataset';
-import { ENV_SETTINGS } from '@/lib/cloudinary/config';
-import { fetchBackendConfig, fetchCloudAssets, type BackendConfig } from '@/lib/cloudinary/backend';
+import { DEMO_CLOUD, ENV_SETTINGS } from '@/lib/cloudinary/config';
+import { fetchBackendConfig, fetchCloudAssets, type BackendConfig, type CloudResource } from '@/lib/cloudinary/backend';
 import { cloudResourceToAsset } from '@/lib/cloudinary/upload';
 import { defaultPresetFor, presetSteps, type PipelineStep } from '@/lib/cloudinary/pipeline';
 import { DEFAULT_SCOPE, type ReportKind, type ReportScope } from '@/lib/report';
 import { hashFor, parseHash, readEntry, rememberScroll, writeEntry, type HistoryEntry, type View } from './state/history';
+import { MAX_STORED_ASSETS, parseStoredAssets, parseStoredSettings } from './state/persisted';
 
 export { VIEWS, type View } from './state/history';
 
@@ -33,14 +34,49 @@ export interface Route {
 const USER_ASSETS_KEY = 'visualops.userAssets.v1';
 const SETTINGS_KEY = 'visualops.settings.v1';
 const DEFAULT_STUDIO_ASSET = 'vo-road-collapse';
+/**
+ * `npm run seed:cloudinary` imports each bundled sample into the team's cloud as `visualops/<sample id>`,
+ * so a sample id (a default, a bookmarked #studio/vo-… link) can resolve to its seeded cloud record.
+ */
+const SEED_PREFIX = 'visualops/';
+/** A record removed from the workspace stays hidden this long, while the Search index catches up. */
+const TOMBSTONE_MS = 5 * 60 * 1000;
 
-function readJson<T>(key: string, fallback: T): T {
+/** Reads and parses a stored JSON value. The result is untrusted: validate it before use. */
+function readJson(key: string): unknown {
   try {
     const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    return raw ? (JSON.parse(raw) as unknown) : null;
   } catch {
-    return fallback;
+    return null;
   }
+}
+
+/** One record per Cloudinary asset. */
+const assetKey = (a: Pick<MediaAsset, 'cloudName' | 'resourceType' | 'publicId'>) => `${a.cloudName}/${a.resourceType}/${a.publicId}`;
+
+/** True when `current` carries a newer Cloudinary AI analysis than `fetched` (the Search index lags writes). */
+function newerAnalysis(current: MediaAsset, fetched: MediaAsset): boolean {
+  const mine = Date.parse(current.ai?.analyzedAt ?? '');
+  if (!Number.isFinite(mine)) return false;
+  const theirs = Date.parse(fetched.ai?.analyzedAt ?? '');
+  return !Number.isFinite(theirs) || mine > theirs;
+}
+
+/**
+ * Maps Search results to records (sample times materialised against the console's clock, the collection tag
+ * kept off the record's tags); a resource the mapper can't read is skipped rather than failing the whole read.
+ */
+function toRecords(page: { cloudName: string; tag: string; resources: CloudResource[] }, now: number): MediaAsset[] {
+  const out: MediaAsset[] = [];
+  for (const r of page.resources) {
+    try {
+      out.push(cloudResourceToAsset(page.cloudName, r, { tag: page.tag, now }));
+    } catch {
+      /* malformed resource: leave it out */
+    }
+  }
+  return out;
 }
 
 function writeJson(key: string, value: unknown) {
@@ -53,11 +89,23 @@ function writeJson(key: string, value: unknown) {
 
 // ---- context shapes -------------------------------------------------------
 
+/**
+ * Which records the console works on.
+ * - `cloud`: the server is connected to Cloudinary and the team's cloud holds at least one VisualOps record.
+ *   The console shows only the cloud's records (plus uploads from this browser that the Search index has not
+ *   returned yet); the bundled samples are hidden.
+ * - `sample`: the bundled sample workspace on Cloudinary's demo cloud, plus this browser's uploads and syncs.
+ */
+export type Workspace = 'cloud' | 'sample';
+
 /** Dataset and Cloudinary settings. Changes when assets are added/removed or settings are saved. */
 export interface ConsoleData {
   now: number;
+  /** The records of the current workspace. */
   assets: MediaAsset[];
+  /** This browser's uploads and syncs (localStorage), in every workspace. */
   userAssets: MediaAsset[];
+  /** A record of the current workspace. In the cloud workspace a sample id also finds its seeded copy. */
   getAsset: (id: string | undefined | null) => MediaAsset | undefined;
   addUserAssets: (assets: MediaAsset[]) => void;
   removeUserAsset: (id: string) => void;
@@ -71,6 +119,17 @@ export interface ConsoleData {
   cloud: CloudState;
   /** Re-reads the team's records from Cloudinary; resolves to how many there are. */
   refreshCloud: () => Promise<number>;
+  /** See {@link Workspace}. */
+  workspace: Workspace;
+  /**
+   * False while the server connection or the first read of the cloud is still pending, i.e. while the
+   * console may yet switch from the sample workspace to the cloud workspace.
+   */
+  workspaceSettled: boolean;
+  /** Replaces a cloud record in place (e.g. after POST /api/assets/[id]/analyze wrote its AI understanding). */
+  updateCloudAsset: (asset: MediaAsset) => void;
+  /** Drops a record from the workspace (e.g. after DELETE /api/assets/[id] removed its VisualOps tag). */
+  removeCloudAsset: (id: string) => void;
 }
 
 export type CloudState =
@@ -128,6 +187,8 @@ export interface ConsoleActions {
   setExportOpen: ConsoleUi['setExportOpen'];
   addUserAssets: ConsoleData['addUserAssets'];
   removeUserAsset: ConsoleData['removeUserAsset'];
+  updateCloudAsset: ConsoleData['updateCloudAsset'];
+  removeCloudAsset: ConsoleData['removeCloudAsset'];
   setSettings: ConsoleData['setSettings'];
   resetSettings: ConsoleData['resetSettings'];
 }
@@ -178,10 +239,9 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   // Client-only provider (see ConsoleRoot): Date.now, localStorage and the URL are safe here.
   const [now] = useState(() => Date.now());
   const [samples] = useState(() => buildSampleAssets(now));
-  const [userAssets, setUserAssets] = useState<MediaAsset[]>(() => readJson<MediaAsset[]>(USER_ASSETS_KEY, []));
-  const [settingsOverride, setSettingsOverride] = useState<CloudSettings | null>(() =>
-    readJson<CloudSettings | null>(SETTINGS_KEY, null),
-  );
+  // Stored values are validated entry by entry; invalid ones are dropped (and gone from storage on the next write).
+  const [userAssets, setUserAssets] = useState<MediaAsset[]>(() => parseStoredAssets(readJson(USER_ASSETS_KEY)));
+  const [settingsOverride, setSettingsOverride] = useState<CloudSettings | null>(() => parseStoredSettings(readJson(SETTINGS_KEY)));
 
   // Seeded from the URL at first render; the layout effect below re-reads it before paint, because a
   // client-side navigation into /console#… renders this provider before Next.js writes the new URL.
@@ -318,19 +378,60 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   const [cloudAssets, setCloudAssets] = useState<MediaAsset[]>([]);
   const [cloud, setCloud] = useState<CloudState>({ status: 'off' });
 
+  // Latest lists for the stable callbacks below (mirrored after each commit; read only from event handlers).
+  const cloudAssetsRef = useRef<MediaAsset[]>(cloudAssets);
+  const userAssetsRef = useRef<MediaAsset[]>(userAssets);
+  useEffect(() => {
+    cloudAssetsRef.current = cloudAssets;
+    userAssetsRef.current = userAssets;
+  }, [cloudAssets, userAssets]);
+  /** Records removed from the workspace in this session (asset key → when), hidden while Search catches up. */
+  const tombstones = useRef(new Map<string, number>());
+  /** Ids uploaded in this session: never pruned as "gone from the cloud" (the Search index may not have them yet). */
+  const addedThisSession = useRef(new Set<string>());
+  /** Only the latest refresh writes state, so an older response that arrives late can't overwrite a newer one. */
+  const refreshSeq = useRef(0);
+
   const refreshCloud = useCallback(async () => {
+    const seq = ++refreshSeq.current;
     setCloud({ status: 'loading' });
     try {
       const page = await fetchCloudAssets();
-      const records = page.resources.map((r) => cloudResourceToAsset(page.cloudName, r));
-      setCloudAssets(records);
-      setCloud({ status: 'ready', count: records.length, at: Date.now() });
+      const at = Date.now();
+      for (const [key, removedAt] of tombstones.current) if (at - removedAt > TOMBSTONE_MS) tombstones.current.delete(key);
+      const records = toRecords(page, now).filter((a) => !tombstones.current.has(assetKey(a)));
+      if (seq !== refreshSeq.current) return records.length;
+
+      // Keep an in-memory copy whose AI analysis is newer than the one the Search index returned.
+      setCloudAssets((prev) => {
+        const current = new Map(prev.map((a) => [a.id, a]));
+        return records.map((r) => {
+          const mine = current.get(r.id);
+          return mine && newerAnalysis(mine, r) ? mine : r;
+        });
+      });
+
+      // A complete read is authoritative for this cloud: an upload from an earlier session that is no longer in
+      // it was removed from the workspace (or deleted) elsewhere, so its cached copy is dropped.
+      if (!page.nextCursor) {
+        const inCloud = new Set(records.map(assetKey));
+        setUserAssets((prev) => {
+          const next = prev.filter(
+            (a) => !(a.source === 'upload' && a.cloudName === page.cloudName && !inCloud.has(assetKey(a)) && !addedThisSession.current.has(a.id)),
+          );
+          if (next.length === prev.length) return prev;
+          writeJson(USER_ASSETS_KEY, next);
+          return next;
+        });
+      }
+
+      setCloud({ status: 'ready', count: records.length, at });
       return records.length;
     } catch (error) {
-      setCloud({ status: 'error', message: (error as Error).message });
+      if (seq === refreshSeq.current) setCloud({ status: 'error', message: (error as Error).message });
       throw error;
     }
-  }, []);
+  }, [now]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -342,19 +443,98 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     return () => controller.abort();
   }, [refreshCloud]);
 
+  // Cloud workspace: the server is connected and the team's cloud holds VisualOps records.
+  const serverCloud = backend?.configured ? backend.cloudName : undefined;
+  const workspace: Workspace = backend?.configured && cloudAssets.length > 0 ? 'cloud' : 'sample';
+  const workspaceSettled =
+    backend !== null && (!backend.configured || cloudAssets.length > 0 || cloud.status === 'ready' || cloud.status === 'error');
+
   // One record per Cloudinary asset: the copy read from the cloud wins over this browser's cached copy.
   const assets = useMemo(() => {
-    const key = (a: MediaAsset) => `${a.cloudName}/${a.resourceType}/${a.publicId}`;
-    const inCloud = new Set(cloudAssets.map(key));
-    return [...cloudAssets, ...userAssets.filter((a) => !inCloud.has(key(a))), ...samples];
-  }, [cloudAssets, userAssets, samples]);
-  const getAsset = useCallback((id: string | undefined | null) => (id ? assets.find((a) => a.id === id) : undefined), [assets]);
+    const inCloud = new Set(cloudAssets.map(assetKey));
+    if (workspace === 'cloud') {
+      // Only the team's records: this browser's uploads to the same cloud that Search hasn't returned yet
+      // (newest, so first), then the cloud's records. Samples, syncs and other clouds' uploads stay out.
+      const pending = userAssets.filter((a) => a.source === 'upload' && a.cloudName === serverCloud && !inCloud.has(assetKey(a)));
+      return [...pending, ...cloudAssets];
+    }
+    return [...cloudAssets, ...userAssets.filter((a) => !inCloud.has(assetKey(a))), ...samples];
+  }, [workspace, serverCloud, cloudAssets, userAssets, samples]);
+
+  const assetIndex = useMemo(() => {
+    const byId = new Map<string, MediaAsset>();
+    const bySeedId = new Map<string, MediaAsset>();
+    for (const a of assets) {
+      if (!byId.has(a.id)) byId.set(a.id, a);
+      if (a.publicId.startsWith(SEED_PREFIX)) {
+        const seedId = a.publicId.slice(SEED_PREFIX.length);
+        if (!bySeedId.has(seedId)) bySeedId.set(seedId, a);
+      }
+    }
+    return { byId, bySeedId };
+  }, [assets]);
+  const getAsset = useCallback(
+    (id: string | undefined | null) => {
+      if (!id) return undefined;
+      // In the cloud workspace a bundled sample's id (a default, a bookmarked link) finds its seeded copy.
+      return assetIndex.byId.get(id) ?? (workspace === 'cloud' ? assetIndex.bySeedId.get(id) : undefined);
+    },
+    [assetIndex, workspace],
+  );
+
+  const updateCloudAsset = useCallback((asset: MediaAsset) => {
+    // Bundled samples (demo cloud) are not cloud records. Seeded records also carry source 'sample'
+    // (provenance sample-annotation) but live in the team's cloud, so they are updated like any other.
+    if (asset.source === 'sample' && asset.cloudName === DEMO_CLOUD) return;
+    const key = assetKey(asset);
+    const matches = (a: MediaAsset) => a.id === asset.id || assetKey(a) === key;
+    tombstones.current.delete(key);
+    setCloudAssets((prev) => {
+      const i = prev.findIndex(matches);
+      if (i >= 0) {
+        const next = prev.slice();
+        next[i] = asset;
+        return next;
+      }
+      // Not read from the cloud yet: a pending upload is updated below; anything else was just written to the cloud.
+      return userAssetsRef.current.some(matches) ? prev : [asset, ...prev];
+    });
+    setUserAssets((prev) => {
+      const i = prev.findIndex(matches);
+      if (i < 0) return prev;
+      const next = prev.slice();
+      next[i] = asset;
+      writeJson(USER_ASSETS_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const removeCloudAsset = useCallback((id: string) => {
+    const target = cloudAssetsRef.current.find((a) => a.id === id) ?? userAssetsRef.current.find((a) => a.id === id);
+    const key = target ? assetKey(target) : null;
+    if (key) tombstones.current.set(key, Date.now());
+    const matches = (a: MediaAsset) => a.id === id || (key !== null && assetKey(a) === key);
+    setCloudAssets((prev) => (prev.some(matches) ? prev.filter((a) => !matches(a)) : prev));
+    // The cached local copy goes too, so it can't come back as a "pending" upload.
+    setUserAssets((prev) => {
+      if (!prev.some(matches)) return prev;
+      const next = prev.filter((a) => !matches(a));
+      writeJson(USER_ASSETS_KEY, next);
+      return next;
+    });
+  }, []);
 
   const addUserAssets = useCallback((incoming: MediaAsset[]) => {
+    incoming.forEach((a) => {
+      addedThisSession.current.add(a.id);
+      tombstones.current.delete(assetKey(a));
+    });
     setUserAssets((prev) => {
       const byId = new Map(prev.map((a) => [a.id, a]));
       incoming.forEach((a) => byId.set(a.id, a));
-      const next = Array.from(byId.values()).sort((a, b) => +new Date(b.capturedAt) - +new Date(a.capturedAt));
+      const next = Array.from(byId.values())
+        .sort((a, b) => +new Date(b.capturedAt) - +new Date(a.capturedAt))
+        .slice(0, MAX_STORED_ASSETS);
       writeJson(USER_ASSETS_KEY, next);
       return next;
     });
@@ -370,8 +550,11 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
 
   const settings = settingsOverride ?? ENV_SETTINGS;
   const setSettings = useCallback((next: CloudSettings) => {
-    setSettingsOverride(next);
-    writeJson(SETTINGS_KEY, next);
+    // Same rules as the stored value is read back with (the dialog validates first, so this never drops input).
+    const valid = parseStoredSettings(next);
+    if (!valid) return;
+    setSettingsOverride(valid);
+    writeJson(SETTINGS_KEY, valid);
   }, []);
   const resetSettings = useCallback(() => {
     setSettingsOverride(null);
@@ -384,7 +567,16 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
 
   // ---- studio & reports ---------------------------------------------------
 
-  const studioAsset = useMemo(() => getAsset(studioAssetId) ?? samples[0], [getAsset, studioAssetId, samples]);
+  // The requested asset; else the default (in the cloud workspace, its seeded copy); else the first field record.
+  const studioAsset = useMemo(
+    () =>
+      getAsset(studioAssetId) ??
+      getAsset(DEFAULT_STUDIO_ASSET) ??
+      assets.find((a) => a.collection !== 'reference') ??
+      assets[0] ??
+      samples[0],
+    [getAsset, studioAssetId, assets, samples],
+  );
   const studioPipeline = pipelines[studioAsset.id];
   // Memoised so the steps (and their ids) stay stable until the asset or pipeline actually changes.
   const studioSteps = useMemo(() => studioPipeline ?? presetSteps(defaultPresetFor(studioAsset)), [studioPipeline, studioAsset]);
@@ -417,6 +609,9 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   // ---- context values -------------------------------------------------------
 
   const settingsOverridden = settingsOverride !== null;
+  // The count follows local changes too (a record removed from the workspace, an analysed record added).
+  const cloudCount = cloudAssets.length;
+  const cloudState = useMemo<CloudState>(() => (cloud.status === 'ready' ? { ...cloud, count: cloudCount } : cloud), [cloud, cloudCount]);
   const data = useMemo<ConsoleData>(
     () => ({
       now,
@@ -430,10 +625,32 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
       resetSettings,
       settingsOverridden,
       backend,
-      cloud,
+      cloud: cloudState,
       refreshCloud,
+      workspace,
+      workspaceSettled,
+      updateCloudAsset,
+      removeCloudAsset,
     }),
-    [now, assets, userAssets, getAsset, addUserAssets, removeUserAsset, settings, setSettings, resetSettings, settingsOverridden, backend, cloud, refreshCloud],
+    [
+      now,
+      assets,
+      userAssets,
+      getAsset,
+      addUserAssets,
+      removeUserAsset,
+      settings,
+      setSettings,
+      resetSettings,
+      settingsOverridden,
+      backend,
+      cloudState,
+      refreshCloud,
+      workspace,
+      workspaceSettled,
+      updateCloudAsset,
+      removeCloudAsset,
+    ],
   );
 
   const routeValue = useMemo<ConsoleRoute>(
@@ -487,10 +704,25 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
       setExportOpen,
       addUserAssets,
       removeUserAsset,
+      updateCloudAsset,
+      removeCloudAsset,
       setSettings,
       resetSettings,
     }),
-    [navigate, openInStudio, reportFor, setStudioAsset, inspect, closeInspector, addUserAssets, removeUserAsset, setSettings, resetSettings],
+    [
+      navigate,
+      openInStudio,
+      reportFor,
+      setStudioAsset,
+      inspect,
+      closeInspector,
+      addUserAssets,
+      removeUserAsset,
+      updateCloudAsset,
+      removeCloudAsset,
+      setSettings,
+      resetSettings,
+    ],
   );
 
   return (

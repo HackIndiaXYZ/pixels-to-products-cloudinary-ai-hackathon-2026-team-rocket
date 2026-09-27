@@ -28,7 +28,21 @@ export default function PrivacyPage() {
               records added here and any settings you enter; clearing site data removes that copy, not the media in Cloudinary.
             </p>
             <p>
-              The sample dataset is served from Cloudinary’s public demo cloud. Faces in media can be pixelated by Cloudinary
+              When you upload a photo, VisualOps runs Cloudinary AI Content Analysis on it: a caption, the objects Cloudinary detects (with
+              confidence and position) and automatic tags. VisualOps’ server asks Cloudinary to analyse the image already stored in the
+              team’s cloud — the file is not re-uploaded or passed through VisualOps — and only for images that carry the VisualOps tag;
+              videos are not analysed. The results are stored as contextual metadata and tags on that asset in the team’s Cloudinary cloud,
+              next to the record fields, and VisualOps always labels them <em>AI detected</em>, separate from what a person entered. Each
+              analysis counts against the team’s Cloudinary add-on quota. Removing a record from the workspace only removes the VisualOps
+              tag; the media and its metadata stay in Cloudinary until the team deletes them there.
+            </p>
+            <p>
+              VisualOps’ pages are served with a strict set of security headers: a Content Security Policy that only allows this site and
+              Cloudinary, no framing by other sites, no camera, microphone or location access, and no sniffing of content types.
+            </p>
+            <p>
+              The bundled sample dataset is served from Cloudinary’s public demo cloud, and a sample workspace seeded into the team’s own
+              cloud carries the same team-written annotations, labelled as sample annotations. Faces in media can be pixelated by Cloudinary
               (<code className="font-mono text-[14px]">e_pixelate_faces</code>) before anything is shared, and in report evidence, faces
               Cloudinary detects are pixelated by default. Detection is automatic and can miss people (or number plates, which it does
               not look for), so check a frame before you share it outside your team.

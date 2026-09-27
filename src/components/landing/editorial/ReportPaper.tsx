@@ -4,17 +4,22 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { CATEGORY_LABEL, STATUS_LABEL } from '@/lib/analytics';
 import { fetchInsight } from '@/lib/cloudinary/insights';
 import { transformationFromUrl } from '@/lib/cloudinary/url';
-import { reportPayload, sha256Hex } from '@/lib/report';
+import { sha256Hex } from '@/lib/report';
 import { IntegrityBadge, SeverityBadge } from '@/components/ui/badges';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { cn } from '@/components/ui/cn';
 import { useInsightFrom, useSeen } from '../tech/hooks';
-import { REPORT_ASSET as ASSET, REPORT_FRAME_URL, REPORT_MODEL as MODEL } from './report-sample';
+import {
+  REPORT_ASSET as ASSET,
+  REPORT_FRAME_URL,
+  REPORT_MODEL as MODEL,
+  REPORT_PAYLOAD as PAYLOAD,
+  REPORT_PAYLOAD_JSON as PAYLOAD_JSON,
+} from './report-sample';
 
 const FINDING = ASSET.finding!;
 
-/** The payload the console exports for this report (deterministic: fixed clock, sample data). */
-const PAYLOAD = reportPayload(MODEL);
-const PAYLOAD_JSON = JSON.stringify(PAYLOAD, null, 2);
+/** Schema of the sample payload (the console's own export builder, fixed clock, sample data). */
 const SCHEMA = PAYLOAD.schema.replace(/^visualops\./, '');
 
 /** Human-readable recipe of the evidence frame, read back from its Cloudinary URL. */
@@ -27,7 +32,8 @@ type HashState = { status: 'pending' } | { status: 'ready'; hex: string } | { st
 /**
  * A report page rendered as paper: header, scope, a Cloudinary-stamped
  * evidence frame with faces pixelated, the finding row and a SHA-256
- * fingerprint of the report payload computed in the browser (Web Crypto).
+ * fingerprint of a fixed sample report payload computed in the browser (Web
+ * Crypto). The payload names exactly the frame URL shown on the paper.
  *
  * The face count is Cloudinary's own fl_getinfo answer for this photo, fetched
  * once the sheet is near the viewport. `sheetClassName` lets the section add a
@@ -109,7 +115,9 @@ export function ReportPaper({ className, sheetClassName }: { className?: string;
             <dd className="mt-1.5 text-[13px] text-ink">Sample time</dd>
           </div>
           <div>
-            <dt className="label">Faces</dt>
+            <dt className="label" title="AI detected · Cloudinary face detection (fl_getinfo), read live">
+              Faces · AI
+            </dt>
             <dd className="num mt-1.5 text-[13px] text-ink">{faces}</dd>
           </div>
           <div>
@@ -141,7 +149,7 @@ export function ReportPaper({ className, sheetClassName }: { className?: string;
             <span className="text-ink-3">
               {CATEGORY_LABEL[FINDING.category]} · {STATUS_LABEL[FINDING.status]}
             </span>
-            <span className="label ml-auto normal-case tracking-[0.02em]">Sample annotation</span>
+            <ProvenanceBadge kind="human" detail="sample annotation" className="ml-auto" />
           </div>
           <h4 className="mt-2.5 text-[16px] font-semibold leading-snug tracking-[-0.01em]">{FINDING.title}</h4>
           <p className="mt-1.5 line-clamp-3 text-[13px] leading-relaxed text-ink-2">{FINDING.summary}</p>
@@ -153,7 +161,7 @@ export function ReportPaper({ className, sheetClassName }: { className?: string;
 
         <footer className="mt-6 border-t border-line pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <span className="label text-ink">SHA-256 · report payload</span>
+            <span className="label text-ink">SHA-256 · sample report payload</span>
             <span className="label normal-case tracking-[0.02em]">computed in this browser</span>
           </div>
           <p className="num mt-2 font-mono text-[11px] leading-[1.7] text-ink-2">
@@ -163,6 +171,10 @@ export function ReportPaper({ className, sheetClassName }: { className?: string;
               : hash.status === 'unavailable'
                 ? 'Unavailable — Web Crypto needs a secure (https) context.'
                 : '…'}
+          </p>
+          <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+            Fixed sample payload, built by the console’s export code: the record above, its sample-annotation provenance and the URL of Fig. 1
+            exactly as shown. No report was run here, so it carries no delivery result.
           </p>
         </footer>
       </div>

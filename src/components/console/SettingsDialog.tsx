@@ -116,8 +116,9 @@ function ServerConnection() {
       <p className="rounded-[9px] border border-line bg-raised px-3 py-2.5 text-[12px] leading-relaxed text-ink-3">
         Configured on the server with <span className="font-mono text-ink-2">CLOUDINARY_CLOUD_NAME</span>,{' '}
         <span className="font-mono text-ink-2">CLOUDINARY_API_KEY</span>, <span className="font-mono text-ink-2">CLOUDINARY_API_SECRET</span> and{' '}
-        <span className="font-mono text-ink-2">CLOUDINARY_UPLOAD_PRESET</span>. The secret never reaches this browser. The bundled sample dataset still
-        renders from Cloudinary’s public <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
+        <span className="font-mono text-ink-2">CLOUDINARY_UPLOAD_PRESET</span>. The secret never reaches this browser. The console runs on the records in
+        this cloud; only when it has none yet does it show the bundled sample dataset from Cloudinary’s public{' '}
+        <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
       </p>
       <div className="flex justify-end">
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setSettingsOpen(false)}>

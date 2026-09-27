@@ -30,32 +30,58 @@ function flattenContext(context: Record<string, unknown> | undefined): Record<st
 }
 
 /**
+ * A public ID accepted for an exact lookup: letters, digits, `_ - . /` and inner spaces, at most 255
+ * characters, no empty or dot-only path segments. Quotes, backslashes and every other character that
+ * could change the meaning of the Search expression are rejected, not escaped.
+ */
+function isLookupPublicId(value: string): boolean {
+  if (value.length < 1 || value.length > 255) return false;
+  if (!/^[A-Za-z0-9_\-./ ]+$/.test(value)) return false;
+  if (/^[\s/.]|[\s/]$/.test(value)) return false;
+  return value.split('/').every((segment) => segment.length > 0 && !/^\.+$/.test(segment) && segment.trim() === segment);
+}
+
+/**
  * GET /api/assets?cursor=… — the VisualOps records stored in the team's Cloudinary cloud.
+ * GET /api/assets?public_id=… — one record, by exact public ID (it must carry the VisualOps tag).
  *
  * Uses Cloudinary's Search API (server-side, API secret) for every image and video carrying the
  * VisualOps tag, newest first, with their tags and contextual metadata. This replaces the public
- * client-side resource list, so the cloud can keep "Resource list" restricted.
+ * client-side resource list, so the cloud can keep "Resource list" restricted. An exact lookup answers
+ * with the same shape: `resources` holds the match (an image and a video may share a public ID) or is empty.
  */
 export async function GET(request: NextRequest) {
   const config = serverConfig();
   if (!config) return jsonError(503, NOT_CONFIGURED, { configured: false });
   if (rateLimited(request, 'assets', 120, 10 * 60 * 1000)) return jsonError(429, 'Too many requests. Try again in a few minutes.');
 
-  const cursor = request.nextUrl.searchParams.get('cursor');
-  const limit = Math.min(100, Math.max(1, Number(request.nextUrl.searchParams.get('limit')) || 100));
+  const params = request.nextUrl.searchParams;
+  const publicId = params.get('public_id');
+  if (publicId !== null && !isLookupPublicId(publicId)) return jsonError(400, 'Invalid public_id.');
+
+  const cursor = params.get('cursor');
+  const limit = Math.min(100, Math.max(1, Number(params.get('limit')) || 100));
+  const types = '(resource_type:image OR resource_type:video)';
 
   try {
     let query = cloudinaryFor(config)
-      .search.expression(`tags=${config.tag} AND (resource_type:image OR resource_type:video)`)
+      .search.expression(
+        publicId !== null
+          ? // Exact match; the value is validated above, so the quotes can't be closed from inside.
+            `public_id="${publicId}" AND tags=${config.tag} AND ${types}`
+          : `tags=${config.tag} AND ${types}`,
+      )
       .with_field('context')
       .with_field('tags')
       .sort_by('created_at', 'desc')
-      .max_results(limit);
-    if (cursor && /^[A-Za-z0-9+/=_-]{1,512}$/.test(cursor)) query = query.next_cursor(cursor);
+      .max_results(publicId !== null ? 10 : limit);
+    if (publicId === null && cursor && /^[A-Za-z0-9+/=_-]{1,512}$/.test(cursor)) query = query.next_cursor(cursor);
     const result = (await query.execute()) as { resources?: SearchResource[]; next_cursor?: string; total_count?: number };
 
     const resources: CloudResource[] = (result.resources ?? [])
       .filter((r) => r.resource_type === 'image' || r.resource_type === 'video')
+      // Search's `=` is exact, but keep the guarantee local: only the requested public ID comes back.
+      .filter((r) => publicId === null || r.public_id === publicId)
       .map((r) => ({
         public_id: r.public_id,
         asset_id: r.asset_id,
@@ -72,7 +98,13 @@ export async function GET(request: NextRequest) {
       }));
 
     return Response.json(
-      { cloudName: config.cloudName, tag: config.tag, resources, nextCursor: result.next_cursor ?? null, total: result.total_count ?? resources.length },
+      {
+        cloudName: config.cloudName,
+        tag: config.tag,
+        resources,
+        nextCursor: publicId !== null ? null : (result.next_cursor ?? null),
+        total: publicId !== null ? resources.length : (result.total_count ?? resources.length),
+      },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (error) {

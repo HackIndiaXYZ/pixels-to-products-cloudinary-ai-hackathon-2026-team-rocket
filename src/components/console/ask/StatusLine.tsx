@@ -44,6 +44,7 @@ export function StatusLine({
   photos,
   videos,
   sites,
+  analysed,
 }: {
   stage: AskStage;
   run: AskRun | null;
@@ -52,6 +53,8 @@ export function StatusLine({
   photos: number;
   videos: number;
   sites: number;
+  /** Records Cloudinary's AI Content Analysis has described. */
+  analysed: number;
 }) {
   if (!run) {
     return (
@@ -62,8 +65,11 @@ export function StatusLine({
         </span>
         <span className="num hidden text-ink-3 sm:inline">
           {plural(pool, 'record')} · {photos} photos · {videos} videos · {plural(sites, 'site')}
+          {analysed > 0 && <> · {analysed} AI-analysed</>}
         </span>
-        <span className="ml-auto hidden text-ink-3 md:inline">Parsed in your browser · no language model</span>
+        <span className="ml-auto hidden text-ink-3 md:inline">
+          {analysed > 0 ? 'Parsed in your browser · AI fields by Cloudinary' : 'Parsed in your browser · no language model'}
+        </span>
       </div>
     );
   }

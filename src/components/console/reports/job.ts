@@ -8,7 +8,10 @@
  *     → ANALYZING FINDINGS       build the finding records and severity counts
  *     → ATTACHING EVIDENCE       HEAD-request every stamped evidence frame from Cloudinary, in parallel,
  *                                and read Cloudinary's face detections (fl_getinfo, cached) for each frame
- *     → BUILDING AUDIT PACKAGE   canonical JSON payload + SHA-256 (Web Crypto)
+ *     → BUILDING AUDIT PACKAGE   canonical JSON payload + SHA-256 (Web Crypto). The payload carries the records
+ *                                (human classification with provenance, Cloudinary AI understanding, capture basis),
+ *                                every evidence URL exactly as rendered and its delivery result + face count from
+ *                                this run — so the hash covers what the run actually measured.
  *     → REPORT READY
  *
  * The job lives outside React (a tiny external store read through
@@ -26,11 +29,13 @@
 import { useSyncExternalStore } from 'react';
 import type { MediaAsset, Region, Severity } from '@/lib/types';
 import {
+  REPORT_EVIDENCE_WIDTH,
   buildReport,
   evidenceStillUrl,
   reportPayload,
   scopeAssets,
   sha256Hex,
+  type EvidenceResult,
   type ReportKind,
   type ReportModel,
   type ReportPayload,
@@ -39,20 +44,24 @@ import {
 import { IMAGE_ACCEPT, measure, schedulePerFrame, type DeliveryMetrics, type ProbeResult } from '@/lib/cloudinary/probe';
 import { fetchInsight, type CloudinaryInsight } from '@/lib/cloudinary/insights';
 import { servedUrl } from '../hooks';
+import { exportBase } from './format';
 
 export type StageId = 'collect' | 'analyze' | 'attach' | 'package';
 
 export const STAGES: ReadonlyArray<{ id: StageId; name: string; feeds: string }> = [
   { id: 'collect', name: 'Collecting media', feeds: 'Cover · scope' },
-  { id: 'analyze', name: 'Analyzing findings', feeds: 'Summary · records' },
+  { id: 'analyze', name: 'Analyzing findings', feeds: 'Summary · records · AI understanding' },
   { id: 'attach', name: 'Attaching evidence', feeds: 'Evidence frames · manifest' },
   { id: 'package', name: 'Building audit package', feeds: 'JSON export · SHA-256' },
 ];
 
 /** Presentational hold for stages whose real work finishes faster than this. Never reported as work time. */
 export const STAGE_PACING_MS = 180;
-/** Width of the evidence rendition the document shows — the exact URL the attach stage requests. */
-export const EVIDENCE_WIDTH = 800;
+/**
+ * Width of the evidence rendition the document shows — the exact URL the attach stage requests and the
+ * JSON, CSV and Markdown exports carry (so the hashed payload names the frame that was actually rendered).
+ */
+export const EVIDENCE_WIDTH = REPORT_EVIDENCE_WIDTH;
 const PROBE_TIMEOUT_MS = 20_000;
 
 export type StageStatus = 'pending' | 'active' | 'done' | 'warn';
@@ -107,6 +116,8 @@ export interface AnalyzeResult {
   /** Not yet resolved: open + monitoring. */
   unresolved: number;
   counts: Record<Severity, number>;
+  /** Records carrying a Cloudinary AI understanding (AI Content Analysis, written on the asset). */
+  ai: number;
 }
 
 export interface PackageResult {
@@ -219,8 +230,19 @@ export function scopeKey(kind: ReportKind, scope: ReportScope, preview: ReportMo
     scope.windowDays,
     scope.assetIds,
     scope.redactFaces,
-    preview.assets.map((a) => a.id),
-    preview.records.map((r) => `${r.finding.id}:${r.finding.severity}:${r.finding.status}`),
+    // An analysis that lands after the report (a new Cloudinary AI understanding) supersedes it too.
+    preview.assets.map((a) => (a.ai ? `${a.id}@${a.ai.analyzedAt ?? 'ai'}` : a.id)),
+    // As do edits to the human classification the export carries.
+    preview.records.map((r) => [
+      r.finding.id,
+      r.finding.severity,
+      r.finding.status,
+      r.finding.title,
+      r.finding.summary,
+      r.finding.action,
+      r.asset.site,
+      r.asset.zone ?? '',
+    ]),
   ]);
 }
 
@@ -309,6 +331,18 @@ function toEvidence(item: EvidenceProbe, result: ProbeResult): EvidenceProbe {
 const facesOf = (insight: CloudinaryInsight | 'error' | undefined): Region[] | 'error' =>
   insight && insight !== 'error' ? insight.faces : 'error';
 
+/** An evidence probe as the export records it: the URL, this run's delivery result and Cloudinary's face count. */
+function evidenceResult(e: EvidenceProbe): EvidenceResult {
+  return {
+    url: e.url,
+    delivery:
+      e.state === 'pending'
+        ? undefined
+        : { delivered: e.state === 'delivered', httpStatus: e.httpStatus, metrics: e.metrics, reason: e.reason },
+    faces: e.faces === undefined ? undefined : e.faces === 'error' ? null : e.faces.length,
+  };
+}
+
 const PENDING: Record<StageId, StageRun> = {
   collect: { status: 'pending' },
   analyze: { status: 'pending' },
@@ -385,6 +419,7 @@ export async function generateReport(input: GenerateInput): Promise<void> {
           monitoring: model.unresolved - model.open,
           unresolved: model.unresolved,
           counts: model.counts,
+          ai: model.records.filter((r) => r.asset.ai).length,
         },
       }),
     );
@@ -472,7 +507,23 @@ export async function generateReport(input: GenerateInput): Promise<void> {
 
     /* 04 · Building audit package --------------------------------------- */
     t = begin('package');
-    const payload = reportPayload(model, media ? delivery : {});
+    // The payload records exactly what this run rendered and measured: each frame's URL, its delivery result
+    // and Cloudinary's face count for it — so the SHA-256 covers them, not just the record fields.
+    const evidenceResults: Record<string, EvidenceResult> = {};
+    for (const e of results) evidenceResults[e.findingId] = evidenceResult(e);
+    const faceCounts: Record<string, number | null> = {};
+    if (media) {
+      for (const asset of model.assets) {
+        const insight = insights[asset.id];
+        if (insight) faceCounts[asset.id] = insight === 'error' ? null : insight.faces.length;
+      }
+    }
+    const payload = reportPayload(model, {
+      measured: media ? delivery : {},
+      faces: faceCounts,
+      evidence: evidenceResults,
+      fileName: `${exportBase(model.kind, model.generatedAt)}.json`,
+    });
     const json = JSON.stringify(payload, null, 2);
     const hash = await sha256Hex(json);
     guard();

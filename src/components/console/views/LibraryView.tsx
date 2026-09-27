@@ -6,6 +6,7 @@ import type { Category, MediaAsset, Severity } from '@/lib/types';
 import { CATEGORIES, CATEGORY_LABEL, SEVERITIES, fieldAssets, sitesOf } from '@/lib/analytics';
 import { titleCase } from '@/lib/format';
 import { SeverityDot } from '@/components/ui/badges';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { Segmented } from '@/components/ui/Segmented';
 import { cn } from '@/components/ui/cn';
 import { LibraryEmpty } from '../library/LibraryEmpty';
@@ -16,6 +17,7 @@ import {
   SORT_LABEL,
   SOURCE_LABEL,
   activeFilterCount,
+  aiOnlyTerms,
   describeFilters,
   facetCounts,
   hasSampleTimes,
@@ -27,6 +29,7 @@ import {
   type SourceFilter,
   type TypeFilter,
 } from '../library/model';
+import { aiAnalysed } from '../incidents/model';
 import { warmInspector } from '../library/renditions';
 import { publishLibrarySequence } from '../library/sequence';
 import { useConsoleActions, useConsoleData, useConsoleUi } from '../store';
@@ -80,11 +83,12 @@ export const LibraryView = memo(function LibraryView() {
 
   const field = useMemo(() => fieldAssets(assets), [assets]);
   const sites = useMemo(() => sitesOf(assets), [assets]);
-  const pool = useMemo(() => poolFor(assets, filters.source), [assets, filters.source]);
+  const pool = useMemo(() => poolFor(assets), [assets]);
   const results = useMemo(() => sortAssets(pool.filter((a) => matches(a, filters)), sort), [pool, filters, sort]);
   const facets = useMemo(() => facetCounts(pool, filters), [pool, filters]);
   const visible = useMemo(() => results.slice(0, limit), [results, limit]);
   const sampleTimes = useMemo(() => hasSampleTimes(field), [field]);
+  const analysed = useMemo(() => field.filter(aiAnalysed).length, [field]);
 
   // Share the result order so the Inspector's ← / → follow exactly this view. The mosaic
   // adds the on-screen order of the rendered page on top (see library/sequence).
@@ -111,6 +115,13 @@ export const LibraryView = memo(function LibraryView() {
             <span className="num">{field.length}</span> field captures · <span className="num">{photos}</span> photos ·{' '}
             <span className="num">{field.length - photos}</span> videos across <span className="num">{sites.length}</span> sites. Every frame, crop and
             preview is rendered by Cloudinary.
+            {analysed > 0 && (
+              <>
+                {' '}
+                <span className="num">{analysed}</span> described by Cloudinary AI — search covers their captions, objects and
+                auto-tags.
+              </>
+            )}
             {sampleTimes && ' Sample capture times are relative to now.'}
           </>
         }
@@ -137,7 +148,7 @@ export const LibraryView = memo(function LibraryView() {
                     patch({ query: '' });
                   }
                 }}
-                placeholder="Search file, finding ID, site, tag…"
+                placeholder={analysed > 0 ? 'Search file, finding ID, site, tag, AI caption…' : 'Search file, finding ID, site, tag…'}
                 className="input pl-8 pr-8"
                 spellCheck={false}
               />
@@ -256,7 +267,7 @@ export const LibraryView = memo(function LibraryView() {
         {results.length === 0 ? (
           <LibraryEmpty summary={describeFilters(filters)} total={pool.length} onClear={clear} onIngest={() => setIngestOpen(true)} />
         ) : (
-          <Results layout={layout} assets={visible} now={now} onOpen={open} />
+          <Results layout={layout} assets={visible} now={now} query={filters.query} onOpen={open} />
         )}
         {results.length > visible.length && <LoadMore key={limit} remaining={results.length - visible.length} page={PAGE} onMore={more} />}
       </div>
@@ -271,12 +282,48 @@ export const LibraryView = memo(function LibraryView() {
  * off). Grid and list are memoised, so Ask or a dialog opening re-renders this
  * wrapper and nothing below it.
  */
-function Results({ layout, assets, now, onOpen }: { layout: Layout; assets: MediaAsset[]; now: number; onOpen: (asset: MediaAsset) => void }) {
+function Results({
+  layout,
+  assets,
+  now,
+  query,
+  onOpen,
+}: {
+  layout: Layout;
+  assets: MediaAsset[];
+  now: number;
+  /** The search box, so matches found only in Cloudinary's AI understanding can be labelled. */
+  query: string;
+  onOpen: (asset: MediaAsset) => void;
+}) {
   const { inspectId } = useConsoleUi();
-  return layout === 'grid' ? (
-    <LibraryGrid assets={assets} now={now} selectedId={inspectId} onOpen={onOpen} onIntent={warmInspector} />
-  ) : (
-    <LibraryList assets={assets} now={now} selectedId={inspectId} onOpen={onOpen} onIntent={warmInspector} />
+  return (
+    <>
+      {layout === 'grid' && <AiMatchNote assets={assets} query={query} />}
+      {layout === 'grid' ? (
+        <LibraryGrid assets={assets} now={now} selectedId={inspectId} onOpen={onOpen} onIntent={warmInspector} />
+      ) : (
+        <LibraryList assets={assets} now={now} query={query} selectedId={inspectId} onOpen={onOpen} onIntent={warmInspector} />
+      )}
+    </>
+  );
+}
+
+/**
+ * The mosaic's tiles cannot carry a per-tile source, so it says here how many results the search
+ * box found only through Cloudinary's AI understanding (the list view labels each row).
+ */
+function AiMatchNote({ assets, query }: { assets: MediaAsset[]; query: string }) {
+  const viaAi = useMemo(() => (query.trim() ? assets.filter((a) => aiOnlyTerms(a, query).length > 0) : []), [assets, query]);
+  if (!viaAi.length) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3">
+      <ProvenanceBadge kind="ai" detail="Cloudinary" />
+      <span>
+        <span className="num text-ink-2">{viaAi.length}</span> of these {viaAi.length === 1 ? 'matches' : 'match'} “{query.trim()}” only
+        in Cloudinary’s caption, detected objects or auto-tags — not in the human-classified record.
+      </span>
+    </p>
   );
 }
 

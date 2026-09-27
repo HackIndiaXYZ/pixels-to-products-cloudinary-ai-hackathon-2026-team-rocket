@@ -1,3 +1,4 @@
+import type { AiUnderstanding, ResourceType } from '@/lib/types';
 import type { IngestContext } from './ingest-fields';
 
 /**
@@ -96,4 +97,71 @@ export async function fetchCloudAssets(signal?: AbortSignal, maxPages = 5): Prom
   }
   if (!page) throw new BackendError('No response from /api/assets', 0);
   return { ...page, resources, nextCursor: cursor };
+}
+
+/**
+ * One VisualOps record read back from Cloudinary by its exact public_id (GET /api/assets?public_id=…,
+ * Search API). Null when the cloud has no such record — or the Search index has not caught up yet.
+ * The second argument is an AbortSignal, or `{ resourceType, signal }` — an image and a video may share
+ * a public ID, and `resourceType` picks one.
+ */
+export async function findCloudAsset(
+  publicId: string,
+  options: AbortSignal | { resourceType?: ResourceType; signal?: AbortSignal } = {},
+): Promise<CloudResource | null> {
+  const { resourceType, signal } = options instanceof AbortSignal ? { resourceType: undefined, signal: options } : options;
+  const res = await fetch(`/api/assets?public_id=${encodeURIComponent(publicId)}`, { cache: 'no-store', signal });
+  const page = await readJson<CloudAssetsPage>(res);
+  return page.resources.find((r) => r.public_id === publicId && (!resourceType || r.resource_type === resourceType)) ?? null;
+}
+
+/** What POST /api/assets/[id]/analyze returns. */
+export interface AnalyzeResult {
+  /** Cloudinary AI understanding (captioning + coco_v2 object detection). Machine-generated: label it "AI detected". */
+  ai: AiUnderstanding;
+  /** The asset's full tag list after auto-tagging (still includes the VisualOps tag). */
+  tags: string[];
+  /** True when the asset had been analysed before and the stored result was returned (no detections spent). */
+  cached?: boolean;
+  /** Set when one of the two detections failed and only the other one's result was saved. */
+  warning?: string;
+}
+
+const assetPath = (publicId: string) => `/api/assets/${encodeURIComponent(publicId)}`;
+
+/**
+ * Asks the server to understand an image with Cloudinary AI (captioning, then object detection with
+ * auto-tagging) and store the result in the asset's contextual metadata. Images only.
+ * `force` re-runs the detections on an asset that was analysed before.
+ */
+export async function analyzeAsset(
+  publicId: string,
+  resourceType: ResourceType,
+  options: { force?: boolean; signal?: AbortSignal } = {},
+): Promise<AnalyzeResult> {
+  if (resourceType !== 'image') {
+    throw new BackendError('AI analysis runs on images. A video keeps its face and crop signals (fl_getinfo on the poster frame).', 400);
+  }
+  const res = await fetch(`${assetPath(publicId)}/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resourceType, ...(options.force ? { force: true } : {}) }),
+    cache: 'no-store',
+    signal: options.signal,
+  });
+  return readJson<AnalyzeResult>(res);
+}
+
+/**
+ * Takes a record out of the VisualOps workspace by removing the VisualOps tag from the asset
+ * (DELETE /api/assets/[id]). Non-destructive: the media stays in Cloudinary.
+ */
+export async function untagAsset(publicId: string, resourceType: ResourceType): Promise<{ removed: boolean; publicId: string; tag: string }> {
+  const res = await fetch(`${assetPath(publicId)}?resourceType=${resourceType}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resourceType }),
+    cache: 'no-store',
+  });
+  return readJson<{ removed: boolean; publicId: string; tag: string }>(res);
 }

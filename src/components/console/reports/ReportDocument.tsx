@@ -3,7 +3,7 @@
 import { motion, type Variants } from 'framer-motion';
 import { AlertTriangle } from 'lucide-react';
 import { Fragment, memo, useEffect, useState, type ReactNode } from 'react';
-import type { AssetSource, MediaAsset, Severity } from '@/lib/types';
+import type { MediaAsset, Severity } from '@/lib/types';
 import {
   CATEGORIES,
   CATEGORY_LABEL,
@@ -15,22 +15,34 @@ import {
   type FindingRecord,
 } from '@/lib/analytics';
 import { formatBytes, formatDuration, isoDay, formatDateTime, pluralize, titleCase } from '@/lib/format';
-import { ANNOTATION_AUTHOR, REPORT_KINDS, ageHours } from '@/lib/report';
+import {
+  REPORT_KINDS,
+  ageHours,
+  annotationAuthor,
+  annotationSource,
+  hashVerifyCommand,
+  isSampleAnnotation,
+  type AnnotationSource,
+} from '@/lib/report';
 import type { DeliveryMetrics } from '@/lib/cloudinary/probe';
 import type { CloudinaryInsight } from '@/lib/cloudinary/insights';
 import { LogoMark } from '@/components/brand/Logo';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { SEVERITY_COLOR } from '@/components/ui/badges';
 import { cn } from '@/components/ui/cn';
 import { useDeviceTier, useReducedMotionPref } from '@/components/motion/hooks';
 import { markRevealed, wasRevealed, type EvidenceProbe, type ReportSnapshot } from './job';
 import {
   SECTION_TITLE,
+  aiLabels,
+  aiMissing,
   captureText,
   documentId,
   exportBase,
   formatWork,
   frameRedaction,
   groupHash,
+  humanDetail,
   provenance,
   redactionCaption,
   type FrameRedaction,
@@ -91,6 +103,9 @@ export const ReportDocument = memo(function ReportDocument({
   const dataset = report.payload.dataset;
 
   const hasManifest = report.evidence.length > 0;
+  // Records (or, for media and asset reports, assets) that carry a Cloudinary AI understanding.
+  const aiScope = findingsLed ? model.records.map((r) => r.asset) : model.assets;
+  const aiCount = aiScope.filter((a) => a.ai).length;
 
   const meta: Array<[string, ReactNode]> = [
     ['Document', <span key="d" className="font-mono text-[11.5px]">{docId}</span>],
@@ -105,7 +120,19 @@ export const ReportDocument = memo(function ReportDocument({
         : 'No frames in scope',
     ],
     ['Redaction', redactionSummary(report)],
-    ['SHA-256', <span key="h" className="font-mono text-[11.5px]">{hash.slice(0, 16)}…</span>],
+    [
+      'AI',
+      aiScope.length
+        ? `${aiCount}/${pluralize(aiScope.length, findingsLed ? 'record' : 'asset')} with Cloudinary AI understanding`
+        : 'Nothing in scope',
+    ],
+    [
+      'SHA-256',
+      <span key="h">
+        <span className="font-mono text-[11.5px]">{hash.slice(0, 16)}…</span>
+        <span className="block text-[11px] text-ink-3">of the exported JSON: records + evidence URLs + delivery results</span>
+      </span>,
+    ],
   ];
 
   return (
@@ -144,6 +171,7 @@ export const ReportDocument = memo(function ReportDocument({
                   {dataset.sampleRecords > 0 && ` ${sampleShare(dataset.sampleRecords, model.records.length)}`}
                 </p>
               )}
+              <ProvenanceLegend />
             </div>
             <dl className="self-end text-[12px] lg:col-start-2">
               {meta.map(([k, v], i) => (
@@ -229,6 +257,26 @@ export const ReportDocument = memo(function ReportDocument({
     </div>
   );
 });
+
+/** How to read the provenance badges on this sheet — the same three classes the JSON export carries. */
+function ProvenanceLegend() {
+  return (
+    <div className="border-t border-line pt-3">
+      <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">Provenance on this sheet</div>
+      <ul className="mt-2 space-y-1.5 text-[12px] leading-snug text-ink-2">
+        <li className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <ProvenanceBadge kind="human" /> written by a person — entered at ingest, or a team-written sample annotation
+        </li>
+        <li className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <ProvenanceBadge kind="ai" detail="Cloudinary" /> captions, objects and tags from AI Content Analysis; face detections
+        </li>
+        <li className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <ProvenanceBadge kind="system" /> counted or measured by VisualOps during this run
+        </li>
+      </ul>
+    </div>
+  );
+}
 
 function sampleShare(samples: number, total: number): string {
   if (samples === total) return total === 1 ? 'The finding in this report is a sample annotation.' : `All ${total} findings in this report are sample annotations.`;
@@ -329,7 +377,7 @@ function SupersededStamp() {
       role="note"
     >
       <div className="type-poster text-[30px] leading-none">Superseded</div>
-      <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em]">Scope changed after issue</div>
+      <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em]">Scope or records changed after issue</div>
     </motion.div>
   );
 }
@@ -484,7 +532,7 @@ function FindingEntry({
 }) {
   const { finding, asset } = record;
   const captured = captureText(asset);
-  const sample = asset.source === 'sample';
+  const sample = isSampleAnnotation(asset);
   return (
     <article className="print-break grid gap-6 border-t border-line py-8 first:border-t-0 first:pt-2 md:grid-cols-[minmax(0,250px)_minmax(0,1fr)] md:gap-8">
       <EvidenceFigure asset={asset} findingId={finding.id} probe={probe} redact={redact} eager={eager} stampPress={stampPress} onInspect={onInspect} />
@@ -502,7 +550,7 @@ function FindingEntry({
           <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
             {CATEGORY_LABEL[finding.category]} · {STATUS_LABEL[finding.status]}
           </span>
-          <span className="ml-auto font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">{provenance(asset)}</span>
+          <ProvenanceBadge kind="human" detail={humanDetail(asset)} className="ml-auto" />
         </div>
         <h4 className="type-heading mt-2.5 text-[21px] text-ink">{finding.title}</h4>
 
@@ -526,16 +574,61 @@ function FindingEntry({
         <div className="mt-5">
           {/* Labelled as the Markdown export labels it, so screen and download carry the same provenance. */}
           <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">
-            {sample ? 'Annotation (sample, team-written)' : `Observed (${ANNOTATION_AUTHOR[asset.source]})`}
+            {sample ? 'Annotation (sample, team-written)' : `Observed (${annotationAuthor(asset)})`}
           </div>
           <p className="mt-1.5 max-w-[64ch] text-[13.5px] leading-relaxed text-ink-2">{finding.summary}</p>
         </div>
+        <AiUnderstandingBlock asset={asset} />
         <div className="mt-4 border-l-2 border-ink pl-3.5">
           <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink">Required action</div>
           <p className="mt-1.5 max-w-[64ch] text-[13.5px] font-medium leading-relaxed text-ink">{finding.action}</p>
         </div>
       </div>
     </article>
+  );
+}
+
+/**
+ * What Cloudinary's AI Content Analysis returned for the record (caption, detected objects with confidence,
+ * auto-tags), kept apart from the human classification above it and labelled AI detected.
+ */
+function AiUnderstandingBlock({ asset }: { asset: MediaAsset }) {
+  const ai = asset.ai;
+  return (
+    <div className="mt-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">Cloudinary AI understanding</span>
+        {ai && <ProvenanceBadge kind="ai" detail="Cloudinary" />}
+      </div>
+      {ai ? (
+        <>
+          {ai.caption && <p className="mt-1.5 max-w-[64ch] text-[13px] italic leading-relaxed text-ink-2">“{ai.caption}”</p>}
+          {ai.objects.length > 0 ? (
+            <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Objects Cloudinary detected">
+              {ai.objects.slice(0, 8).map((o, i) => (
+                <li key={`${o.label}-${i}`} className="rounded-[4px] border border-line px-1.5 py-[3px] font-mono text-[10.5px] leading-none text-ink">
+                  {o.label} <span className="num text-ink-3">{Math.round(o.confidence * 100)}%</span>
+                </li>
+              ))}
+              {ai.objects.length > 8 && <li className="px-1 py-[3px] font-mono text-[10.5px] leading-none text-ink-3">+{ai.objects.length - 8} more</li>}
+            </ul>
+          ) : (
+            <p className="mt-1.5 text-[12px] text-ink-3">No objects above the confidence threshold.</p>
+          )}
+          <p className="mt-2 font-mono text-[10px] leading-relaxed text-ink-3">
+            {[
+              ai.tags.length ? `auto-tags: ${ai.tags.join(', ')}` : '',
+              ai.model ?? '',
+              ai.analyzedAt ? `analysed ${formatDateTime(ai.analyzedAt)}` : '',
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'Cloudinary AI Content Analysis'}
+          </p>
+        </>
+      ) : (
+        <p className="mt-1.5 text-[12px] text-ink-3">{aiMissing(asset)}.</p>
+      )}
+    </div>
   );
 }
 
@@ -617,7 +710,16 @@ function EvidenceFigure({
 
       <figcaption className="mt-4 font-mono text-[10px] leading-relaxed text-ink-3">
         <span className="text-ink">Fig. {probe.fig}</span> · Cloudinary evidence rendition · e_improve · audit stamp · no generative edits
-        <span className="mt-1 block">{redactionCaption(redaction, redact)}</span>
+        <span className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <ProvenanceBadge kind="system" detail="this run" />
+          {ok
+            ? `HTTP ${probe.httpStatus ?? 200} · ${(m?.format ?? '').toUpperCase()} ${formatBytes(m?.bytes)}`
+            : `not delivered · ${failureText(probe)}`}
+        </span>
+        <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <ProvenanceBadge kind="ai" detail="Cloudinary faces" />
+          {redactionCaption(redaction, redact)}
+        </span>
         <RedactionChecks redaction={redaction} />
       </figcaption>
     </figure>
@@ -678,7 +780,14 @@ function IncidentRegister({ report, onInspect }: { report: ReportSnapshot; onIns
               <td className={TD}>
                 <SeverityTag severity={finding.severity} />
               </td>
-              <td className={cn(TD, 'max-w-[220px] font-medium')}>{finding.title}</td>
+              <td className={cn(TD, 'max-w-[220px] font-medium')}>
+                {finding.title}
+                {asset.ai && (
+                  <span className="mt-1 block font-mono text-[10.5px] font-normal text-signal" title="AI detected by Cloudinary">
+                    AI · {aiLabels(asset)}
+                  </span>
+                )}
+              </td>
               <td className={cn(TD, 'text-ink-2')}>
                 {asset.site}
                 {asset.zone && <span className="block text-[11.5px] text-ink-3">{asset.zone}</span>}
@@ -694,6 +803,11 @@ function IncidentRegister({ report, onInspect }: { report: ReportSnapshot; onIns
         Age is measured from capture to the time this report was generated
         {captureBasisNote(model.records.map((r) => r.asset))}. Finding text: {provenanceSummary(model.records)}.
       </p>
+      <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] leading-relaxed text-ink-3">
+        <ProvenanceBadge kind="human" /> severity, finding, location, status and action ·
+        <ProvenanceBadge kind="ai" detail="Cloudinary" /> lines marked AI ·
+        <ProvenanceBadge kind="system" /> age
+      </p>
     </div>
   );
 }
@@ -707,18 +821,21 @@ function captureBasisNote(assets: MediaAsset[]): string {
   return notes.length ? `; ${notes.join('; ')}` : '';
 }
 
-/** Who wrote the findings in this report, in the exports' words (ANNOTATION_AUTHOR). */
+/** Who wrote the findings in this report, in the exports' words (annotationAuthor). */
 function findingAuthors(records: FindingRecord[]): string {
   if (!records.length) return 'No findings in scope.';
-  const by = new Map<AssetSource, number>();
-  for (const r of records) by.set(r.asset.source, (by.get(r.asset.source) ?? 0) + 1);
-  const phrase: Record<AssetSource, (n: number) => string> = {
-    sample: (n) => `${pluralize(n, 'sample annotation')} written by the VisualOps team`,
-    upload: (n) => `${pluralize(n, 'finding')} entered at ingest in VisualOps`,
-    sync: (n) => `${pluralize(n, 'finding')} from Cloudinary context metadata (synced)`,
+  const by = new Map<AnnotationSource, number>();
+  for (const r of records) {
+    const source = annotationSource(r.asset);
+    by.set(source, (by.get(source) ?? 0) + 1);
+  }
+  const phrase: Record<AnnotationSource, (n: number) => string> = {
+    'sample-annotation': (n) => `${pluralize(n, 'sample annotation')} written by the VisualOps team`,
+    ingest: (n) => `${pluralize(n, 'finding')} entered at ingest in VisualOps`,
+    synced: (n) => `${pluralize(n, 'finding')} from Cloudinary context metadata (synced)`,
   };
   const parts = Array.from(by, ([source, n]) => phrase[source](n));
-  return `${parts.join(' · ')}.${by.has('sample') ? ' Sample annotations describe only what is visible in each frame.' : ''}`;
+  return `${parts.join(' · ')}.${by.has('sample-annotation') ? ' Sample annotations describe only what is visible in each frame.' : ''}`;
 }
 
 function provenanceSummary(records: FindingRecord[]): string {
@@ -734,7 +851,7 @@ function MediaTable({ report }: { report: ReportSnapshot }) {
   const { model } = report;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-[12.5px] print:min-w-0">
+      <table className="w-full min-w-[860px] text-[12.5px] print:min-w-0">
         <thead>
           <tr className="border-b border-ink">
             <th className={TH}>File</th>
@@ -743,7 +860,8 @@ function MediaTable({ report }: { report: ReportSnapshot }) {
             <th className={cn(TH, 'text-right')}>Delivered</th>
             <th className={cn(TH, 'text-right')}>Change</th>
             <th className={TH}>CDN</th>
-            <th className={cn(TH, 'pr-0 print:pr-0 text-right')}>Face detections</th>
+            <th className={cn(TH, 'text-right')}>Face detections</th>
+            <th className={cn(TH, 'pr-0 print:pr-0')}>AI detected</th>
           </tr>
         </thead>
         <tbody>
@@ -752,11 +870,16 @@ function MediaTable({ report }: { report: ReportSnapshot }) {
           ))}
         </tbody>
       </table>
-      <p className="mt-3 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] leading-relaxed text-ink-3">
+        <ProvenanceBadge kind="system" detail="this run" /> original, delivered, change and CDN ·
+        <ProvenanceBadge kind="ai" detail="Cloudinary" /> face detections and AI detected
+      </p>
+      <p className="mt-2 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
         Delivered size and format are read from Cloudinary’s Server-Timing header for the rendition the console serves (images: c_limit
         1600 · q_auto · f_auto; videos: c_limit 1280 · q_auto · vc_auto), so the change includes resizing, not only compression. Face
         detections are Cloudinary’s automatic ones from fl_getinfo and can include false positives or miss
-        people. Video originals are the sizes recorded at ingest.
+        people. AI detected lists the objects Cloudinary’s AI Content Analysis found, with its confidence; it runs on photos when they are
+        ingested. Video originals are the sizes recorded at ingest.
       </p>
     </div>
   );
@@ -782,8 +905,11 @@ function MediaRow({ asset, metrics, insight }: { asset: MediaAsset; metrics?: De
         {change !== undefined ? `${change < 0 ? '−' : '+'}${Math.abs(Math.round(change * 100))}%` : '—'}
       </td>
       <td className={cn(TD, 'font-mono text-[11px] uppercase text-ink-2')}>{metrics?.cache ?? '—'}</td>
-      <td className={cn(TD, 'num pr-0 print:pr-0 text-right font-mono text-[11.5px]')}>
+      <td className={cn(TD, 'num text-right font-mono text-[11.5px]')}>
         {insight && insight !== 'error' ? insight.faces.length : insight === 'error' ? 'n/a' : '—'}
+      </td>
+      <td className={cn(TD, 'max-w-[200px] pr-0 print:pr-0 text-[11.5px]', asset.ai ? 'font-mono text-ink' : 'text-ink-3')}>
+        {asset.ai ? aiLabels(asset) : asset.resourceType === 'video' ? 'video · not analysed' : 'not analysed'}
       </td>
     </tr>
   );
@@ -828,14 +954,15 @@ function AssetInventory({ report }: { report: ReportSnapshot }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[620px] text-[12.5px] print:min-w-0">
+        <table className="w-full min-w-[760px] text-[12.5px] print:min-w-0">
           <thead>
             <tr className="border-b border-ink">
               <th className={TH}>File</th>
               <th className={TH}>Type</th>
               <th className={cn(TH, 'text-right')}>Dimensions</th>
               <th className={TH}>Location</th>
-              <th className={cn(TH, 'pr-0 print:pr-0')}>Captured</th>
+              <th className={TH}>Captured</th>
+              <th className={cn(TH, 'pr-0 print:pr-0')}>AI detected</th>
             </tr>
           </thead>
           <tbody>
@@ -846,6 +973,10 @@ function AssetInventory({ report }: { report: ReportSnapshot }) {
         </table>
         <p className="mt-3 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
           Captured times are local to this browser{captureBasisNote(model.assets)}.
+        </p>
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] leading-relaxed text-ink-3">
+          <ProvenanceBadge kind="human" /> location ·
+          <ProvenanceBadge kind="ai" detail="Cloudinary" /> AI detected (objects and confidence from AI Content Analysis)
         </p>
       </div>
     </div>
@@ -867,9 +998,12 @@ function InventoryRow({ asset: a }: { asset: MediaAsset }) {
         {a.site}
         {a.zone ? ` · ${a.zone}` : ''}
       </td>
-      <td className={cn(TD, 'whitespace-nowrap pr-0 print:pr-0 text-ink-2')}>
+      <td className={cn(TD, 'whitespace-nowrap text-ink-2')}>
         {captured.when}
         {captured.short && <span className="block text-[11px] text-ink-3">{captured.short}</span>}
+      </td>
+      <td className={cn(TD, 'max-w-[200px] pr-0 print:pr-0 text-[11.5px]', a.ai ? 'font-mono text-ink' : 'text-ink-3')}>
+        {a.ai ? aiLabels(a) : a.resourceType === 'video' ? 'video · not analysed' : 'not analysed'}
       </td>
     </tr>
   );
@@ -945,11 +1079,16 @@ function EvidenceManifest({ report }: { report: ReportSnapshot }) {
           })}
         </tbody>
       </table>
-      <p className="mt-3 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] leading-relaxed text-ink-3">
+        <ProvenanceBadge kind="system" detail="this run" /> delivered, frame, HTTP · CDN and round-trip ·
+        <ProvenanceBadge kind="ai" detail="Cloudinary" /> faces
+      </p>
+      <p className="mt-2 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
         Each evidence frame was requested from Cloudinary during this run; “delivered” means Cloudinary answered HTTP 200 for exactly that
         rendition. Format, size, dimensions and cache status are read from Cloudinary’s own response headers. Faces counts Cloudinary’s
         automatic face detections for the same frame (fl_getinfo), the detections e_pixelate_faces pixelates; they can include false
-        positives or miss people. The JSON, CSV and Markdown exports link the same frames at 1200 px.
+        positives or miss people. The JSON, CSV and Markdown exports carry these exact frame URLs with the delivery result and face count
+        recorded here, and the SHA-256 covers them.
       </p>
     </div>
   );
@@ -964,14 +1103,33 @@ function manifestFaces(redaction: FrameRedaction, redact: boolean): string {
 }
 
 function Integrity({ report }: { report: ReportSnapshot }) {
-  const { model } = report;
+  const { model, payload } = report;
   const base = exportBase(model.kind, model.generatedAt);
+  const { summary } = payload;
   const facts: Array<[string, string]> = [
-    ['Schema', report.payload.schema],
+    ['Schema', payload.schema],
     ['Payload', `${formatBytes(report.jsonBytes)} JSON`],
-    ['Records', `${pluralize(report.payload.findings.length, 'finding')} · ${pluralize(report.payload.assets.length, 'asset')}`],
+    ['Records', `${pluralize(payload.findings.length, 'finding')} · ${pluralize(payload.assets.length, 'asset')}`],
+    [
+      'AI',
+      model.kind === 'inspection' || model.kind === 'incident'
+        ? `${summary.aiAnalysed}/${pluralize(summary.findings, 'record')} with Cloudinary AI understanding`
+        : `${payload.assets.filter((a) => a.ai).length}/${pluralize(payload.assets.length, 'asset')} with Cloudinary AI understanding`,
+    ],
+    [
+      'Evidence',
+      summary.evidence.frames
+        ? `${summary.evidence.delivered}/${pluralize(summary.evidence.frames, 'frame')} delivered · results included`
+        : 'No frames in scope',
+    ],
     ['Algorithm', 'SHA-256 · Web Crypto'],
     ['Work time', formatWork(report.workMs)],
+  ];
+  // What the hashed JSON holds, per finding — each with the provenance class the export records for it.
+  const covered: Array<[ReactNode, string]> = [
+    [<ProvenanceBadge key="h" kind="human" />, 'Classified fields — title, site, zone, category, severity, status, observation, action, marked region — and who wrote them (sample annotation, entered at ingest, or synced)'],
+    [<ProvenanceBadge key="a" kind="ai" detail="Cloudinary" />, 'The Cloudinary AI understanding when present — caption, detected objects with confidence and boxes, auto-tags, model, analysed time — and the face-detection count for each frame'],
+    [<ProvenanceBadge key="s" kind="system" detail="this run" />, 'The evidence frame URL exactly as rendered on this sheet and its delivery result (HTTP status, bytes, format, dimensions, cache), plus the capture-time basis'],
   ];
   return (
     <div>
@@ -980,9 +1138,25 @@ function Integrity({ report }: { report: ReportSnapshot }) {
           <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">SHA-256 of the JSON export</div>
           <p className="num mt-2 break-all font-mono text-[15px] leading-[1.7] tracking-[0.02em] text-ink sm:text-[17px]">{groupHash(report.hash)}</p>
           <p className="mt-4 max-w-[62ch] text-[12.5px] leading-relaxed text-ink-2">
-            Computed in the browser when this package was built. The JSON export contains exactly the hashed bytes — verify it with{' '}
-            <code className="whitespace-nowrap border border-line bg-raised px-1 py-[1px] font-mono text-[11.5px] text-ink">shasum -a 256 {base}.json</code>.
-            Any change to scope, records or evidence links yields a different digest.
+            <b className="font-semibold text-ink">What the SHA-256 covers:</b> the exported JSON — records + evidence URLs + delivery results.
+            It is computed in this browser over exactly the bytes the JSON export downloads; recompute it with{' '}
+            <code className="whitespace-nowrap border border-line bg-raised px-1 py-[1px] font-mono text-[11.5px] text-ink">
+              {hashVerifyCommand(`${base}.json`)}
+            </code>{' '}
+            (or <code className="whitespace-nowrap font-mono text-[11.5px] text-ink">shasum -a 256</code> on macOS). Any change to scope, records,
+            AI understanding, evidence links or delivery results yields a different digest.
+          </p>
+          <ul className="mt-4 max-w-[70ch] space-y-2 text-[12px] leading-relaxed text-ink-2">
+            {covered.map(([badge, text], i) => (
+              <li key={i} className="grid gap-1 sm:grid-cols-[minmax(0,168px)_minmax(0,1fr)] sm:gap-3">
+                <span className="pt-[1px]">{badge}</span>
+                <span>{text}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+            Not covered: the image bytes themselves — each frame is identified by its URL and its measured size. The Markdown and CSV exports
+            are renderings of the same payload and are not hashed separately.
           </p>
         </div>
         <dl className="self-start text-[12px]">
@@ -1004,7 +1178,8 @@ function Integrity({ report }: { report: ReportSnapshot }) {
         </li>
         <li>
           <span className="mb-1 block font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink">Findings</span>
-          {findingAuthors(model.records)} The JSON, CSV and Markdown exports record the same author for every finding.
+          {findingAuthors(model.records)} The JSON, CSV and Markdown exports record the same author for every finding, and keep
+          Cloudinary’s AI understanding separate from it, labelled AI detected.
         </li>
         <li>
           <span className="mb-1 block font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink">Measurements</span>

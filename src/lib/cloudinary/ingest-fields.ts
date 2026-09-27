@@ -18,6 +18,10 @@ export interface IngestContext {
   note?: string;
   finding_id?: string;
   source?: string;
+  /** Always "ingest" for records entered at upload (see record-context.ts). */
+  provenance?: string;
+  /** The capture's original file name. */
+  file_name?: string;
 }
 
 const LIMITS: Record<keyof IngestContext, number> = {
@@ -28,6 +32,8 @@ const LIMITS: Record<keyof IngestContext, number> = {
   note: 200,
   finding_id: 24,
   source: 20,
+  provenance: 20,
+  file_name: 120,
 };
 
 const FINDING_ID = /^VO-[A-Z0-9-]{3,20}$/;
@@ -47,6 +53,9 @@ export function sanitizeIngestContext(input: unknown): IngestContext {
     if (key === 'severity' && !CONTEXT_SEVERITIES.includes(value as Severity)) continue;
     if (key === 'finding_id' && !FINDING_ID.test(value)) continue;
     if (key === 'source' && value !== 'visualops') continue;
+    // Uploads can only ever claim to be entered at ingest — never a sample annotation.
+    if (key === 'provenance' && value !== 'ingest') continue;
+    if (key === 'file_name' && !/^[\w .()[\]-]{1,120}$/.test(value)) continue;
     out[key] = value;
   }
   return out;

@@ -20,7 +20,8 @@ import { CloudImage } from './CloudImage';
  *
  * The frame is a Cloudinary g_auto crop sized to the tile's span; videos play a
  * short Cloudinary-trimmed clip after a brief hover. Hover or keyboard focus
- * reveals the record and, fetched lazily on first intent, Cloudinary's own AI
+ * reveals the record, the Cloudinary AI caption stored on the asset (one line,
+ * marked AI) when it has been analysed, and, fetched lazily on first intent, Cloudinary's own AI
  * signals for the frame (fl_getinfo): its face detections and where g_auto
  * placed its crop — crop geometry, never presented as a detected subject. The image drifts toward the pointer via
  * a transform written straight to the DOM — no React render per pointer move.
@@ -172,12 +173,14 @@ function AssetCardImpl({ asset, now, kind = 'standard', cell, onOpen, onIntent, 
   const place = `${asset.site}${asset.zone ? ` · ${asset.zone}` : ''}`;
   const tags = asset.tags.slice(0, large || kind === 'tall' ? 5 : 3);
   const captured = captureTimeDisplay(asset, now);
+  const aiCaption = asset.ai?.caption;
   const label = [
     title,
     severity ? `${severity} severity${finding ? `, ${CATEGORY_LABEL[finding.category]}` : ''}` : 'no finding recorded',
     place,
     `captured ${captured.time}${captured.camera ? ' (camera time)' : ''}`,
     isVideo ? 'video' : 'photo',
+    ...(aiCaption ? [`AI caption by Cloudinary: ${aiCaption}`] : []),
   ].join('. ');
   const placement = cell
     ? { gridColumn: `${cell.col + 1} / span ${cell.cols}`, gridRow: `${cell.row + 1} / span ${cell.rows}` }
@@ -362,6 +365,15 @@ function AssetCardImpl({ asset, now, kind = 'standard', cell, onOpen, onIntent, 
                 {title}
               </span>
               <span className="mt-1 block truncate text-[12px] text-ink-2">{place}</span>
+              {aiCaption && (
+                // Cloudinary AI's caption, one line, marked as machine-generated.
+                <span className="mt-1 flex min-w-0 items-center gap-1.5 @max-[160px]:hidden">
+                  <span className="shrink-0 rounded-[3px] border border-[color-mix(in_oklab,var(--color-signal)_45%,transparent)] px-1 font-mono text-[9px] font-semibold leading-[13px] tracking-[0.06em] text-signal">
+                    AI
+                  </span>
+                  <span className="min-w-0 truncate text-[11.5px] text-ink-2">{aiCaption}</span>
+                </span>
+              )}
               <span className="num mt-1 block truncate font-mono text-[10.5px] text-ink-3 @max-[210px]:hidden">
                 {captured.time} · {captured.detail} · {asset.fileName}
               </span>

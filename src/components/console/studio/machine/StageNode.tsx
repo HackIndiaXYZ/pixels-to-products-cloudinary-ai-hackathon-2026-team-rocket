@@ -2,9 +2,10 @@
 
 import { AlertTriangle, Check, X } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { cn } from '@/components/ui/cn';
 import type { StageDef, StageState, StageStatus } from './run';
-import type { TagSource } from './signals';
+import { TAG_SOURCES, type DerivedTag, type TagSource } from './signals';
 
 const TONE: Record<StageStatus, string> = {
   idle: 'text-ink-3',
@@ -23,17 +24,48 @@ const EMPHASIS: Record<StageStatus, string> = {
   error: 'text-critical',
 };
 
-const TAG_DOT: Record<TagSource, string> = {
-  cloudinary: 'bg-signal',
-  pipeline: 'bg-indigo',
-  record: 'bg-ink-3',
+const TAG_TITLE: Record<TagSource, string> = {
+  human: 'Human classified · from the record',
+  ai: 'AI detected · Cloudinary',
+  system: 'System derived · measured or computed by VisualOps',
 };
 
-const TAG_SOURCE_LABEL: Record<TagSource, string> = {
-  cloudinary: 'Cloudinary signal (this run)',
-  pipeline: 'Pipeline integrity',
-  record: 'Record',
+const AI_ORIGIN: Record<NonNullable<StageState['ai']>['origin'], string> = {
+  stored: 'stored',
+  analysed: 'this run',
+  'server-cached': 'stored',
 };
+
+/** CLASSIFY's labels, one group per source, each under its provenance badge. */
+function TagGroups({ tags, max }: { tags: DerivedTag[]; max: number }) {
+  return (
+    <div className="mt-2 space-y-1.5">
+      {TAG_SOURCES.map((source) => {
+        const group = tags.filter((t) => t.source === source);
+        if (!group.length) return null;
+        return (
+          <div key={source} className="min-w-0">
+            <ProvenanceBadge kind={source} className="py-0 text-[9.5px]" />
+            <ul className="mt-1 flex flex-wrap gap-1" aria-label={TAG_TITLE[source]}>
+              {group.slice(0, max).map((t) => (
+                <li
+                  key={t.tag}
+                  title={TAG_TITLE[source]}
+                  className="inline-flex h-[18px] max-w-full items-center rounded-[4px] border border-line px-1.5 font-mono text-[10px] text-ink-2"
+                >
+                  <span className="truncate">{t.tag}</span>
+                </li>
+              ))}
+              {group.length > max && (
+                <li className="inline-flex h-[18px] items-center px-1 font-mono text-[10px] text-ink-3">+{group.length - max}</li>
+              )}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** Stage latency: sub-millisecond local work reads "<1 ms" rather than a false-precision zero. */
 export function formatStageMs(ms: number): string {
@@ -115,7 +147,8 @@ export function StageNode({
 }) {
   const ran = state.status !== 'idle';
   const tone = state.halted && !ran ? 'text-ink-3' : TONE[state.status];
-  const maxTags = horizontal ? 4 : compact ? 2 : 12;
+  const maxTags = horizontal ? 2 : compact ? 2 : 8;
+  const maxObjects = horizontal ? 2 : compact ? 2 : 6;
   const maxComponents = horizontal ? 4 : compact ? 2 : 8;
 
   return (
@@ -192,23 +225,35 @@ export function StageNode({
             </p>
           )}
 
-          {state.tags && state.tags.length > 0 && (
-            <ul className="mt-2 flex flex-wrap gap-1" aria-label="Derived tags">
-              {state.tags.slice(0, maxTags).map((t) => (
-                <li
-                  key={t.tag}
-                  title={TAG_SOURCE_LABEL[t.source]}
-                  className="inline-flex h-[18px] max-w-full items-center gap-1 rounded-[4px] border border-line px-1.5 font-mono text-[10px] text-ink-2"
-                >
-                  <span aria-hidden className={cn('h-1 w-1 shrink-0 rounded-full', TAG_DOT[t.source])} />
-                  <span className="truncate">{t.tag}</span>
-                </li>
-              ))}
-              {state.tags.length > maxTags && (
-                <li className="inline-flex h-[18px] items-center px-1 font-mono text-[10px] text-ink-3">+{state.tags.length - maxTags}</li>
-              )}
-            </ul>
+          {state.note && (
+            <p className="mt-1.5 line-clamp-3 text-[11.5px] leading-snug text-ink-3" title={state.note}>
+              {state.note}
+            </p>
           )}
+
+          {state.ai && (state.ai.caption || state.ai.objects.length > 0) && (
+            <div className="mt-2 min-w-0">
+              <ProvenanceBadge kind="ai" detail={`Cloudinary · ${AI_ORIGIN[state.ai.origin]}`} className="py-0 text-[9.5px]" />
+              {state.ai.objects.length > 0 && (
+                <ul className="mt-1 flex flex-wrap gap-1" aria-label="Objects Cloudinary detected">
+                  {state.ai.objects.slice(0, maxObjects).map((o) => (
+                    <li
+                      key={o}
+                      title="Detected by Cloudinary · confidence"
+                      className="inline-flex h-[18px] max-w-full items-center rounded-[4px] border border-line px-1.5 font-mono text-[10px] text-ink-2"
+                    >
+                      <span className="truncate">{o}</span>
+                    </li>
+                  ))}
+                  {state.ai.objects.length > maxObjects && (
+                    <li className="inline-flex h-[18px] items-center px-1 font-mono text-[10px] text-ink-3">+{state.ai.objects.length - maxObjects}</li>
+                  )}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {state.tags && state.tags.length > 0 && <TagGroups tags={state.tags} max={maxTags} />}
 
           {components && (
             <ol className="mt-2 space-y-0.5 border-l border-line pl-2 font-mono text-[10.5px] leading-[1.5] text-ink-2" aria-label="Transformation components">

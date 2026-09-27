@@ -26,7 +26,9 @@ export function LibraryEmpty({
                 No captures match <span className="text-ink-2">{summary.join(' · ')}</span>.{' '}
               </>
             ) : null}
-            Loosen a filter, or ingest new captures into Cloudinary — uploads and tag syncs appear here as soon as they arrive.
+            The search box reads each record’s human-classified fields and, where Cloudinary has analysed the media, its AI
+            caption, detected objects and auto-tags. Loosen a filter, or ingest new captures into Cloudinary — uploads and tag
+            syncs appear here as soon as they arrive.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             <button type="button" className="btn btn-secondary btn-sm" onClick={onClear}>

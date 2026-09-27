@@ -5,15 +5,26 @@ import { Info } from 'lucide-react';
 import { useMemo } from 'react';
 import { pluralize } from '@/lib/format';
 import { cn } from '@/components/ui/cn';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { relatedTerms } from '@/lib/search/query';
-import { describeReach, expansionsOf, interpret, negationNotice, type AskRun, type AskStage } from './engine';
+import { describeReach, expansionsOf, fieldsLabel, interpret, negationNotice, type AskRun, type AskStage } from './engine';
 import { EASE } from './IndexStrip';
 
-/** "Understood as": the explicit interpretation of the question. */
+/**
+ * "Understood as": the explicit interpretation of the question — filters, keywords (with the
+ * related terms searched), and which keywords reached records only through Cloudinary's AI.
+ */
 export function Understanding({ run, stage, final, still }: { run: AskRun; stage: AskStage; final: boolean; still: boolean }) {
   const chips = useMemo(() => interpret(run), [run]);
   const expansions = useMemo(() => expansionsOf(run), [run]);
   const negation = useMemo(() => negationNotice(run), [run]);
+  const aiReach = useMemo(
+    () =>
+      run.result.keywords
+        .filter((k) => run.keywordAi[k] && !run.result.unmatchedKeywords.includes(k))
+        .map((k) => ({ keyword: k, ...run.keywordAi[k] })),
+    [run],
+  );
   const { result } = run;
   return (
     <div className="border-t border-line px-4 py-2.5 sm:px-5">
@@ -51,6 +62,14 @@ export function Understanding({ run, stage, final, still }: { run: AskRun; stage
                   <span className="sr-only">and {pluralize(chip.related.length, 'related term')}</span>
                 </>
               )}
+              {chip.ai !== undefined && (
+                <>
+                  <span aria-hidden className="num shrink-0 font-mono text-[9.5px] uppercase tracking-[0.06em] text-signal/80">
+                    ai {chip.ai}
+                  </span>
+                  <span className="sr-only">, {pluralize(chip.ai, 'record')} matched only through Cloudinary AI</span>
+                </>
+              )}
             </motion.span>
           ))
         )}
@@ -64,6 +83,20 @@ export function Understanding({ run, stage, final, still }: { run: AskRun; stage
               <span className="text-ink-2">“{keyword}”</span> → {related.join(', ')}
             </span>
           ))}
+        </p>
+      )}
+      {aiReach.length > 0 && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] leading-relaxed text-ink-3">
+          <ProvenanceBadge kind="ai" detail="Cloudinary" />
+          <span className="min-w-0 [overflow-wrap:anywhere]">
+            {aiReach.map(({ keyword, records, fields }, i) => (
+              <span key={keyword}>
+                {i > 0 && ' · '}
+                <span className="text-ink-2">“{keyword}”</span> reaches {pluralize(records, 'record')} only through {fieldsLabel(fields)}
+              </span>
+            ))}
+            <span> — not in the human-classified record.</span>
+          </span>
         </p>
       )}
       {negation && (

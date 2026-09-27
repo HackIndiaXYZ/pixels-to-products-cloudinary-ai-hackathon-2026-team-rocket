@@ -3,7 +3,7 @@
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
 import { CornerDownRight, FileText, ListFilter, ScanSearch, X } from 'lucide-react';
 import { useState } from 'react';
-import type { Finding, MediaAsset, Severity } from '@/lib/types';
+import type { Finding, MediaAsset, Region, Severity } from '@/lib/types';
 import { CATEGORY_LABEL } from '@/lib/analytics';
 import { faceDetections } from '@/lib/cloudinary/insights';
 import { displayUrl, posterOffset } from '@/lib/cloudinary/media';
@@ -12,14 +12,17 @@ import { pluralize, titleCase } from '@/lib/format';
 import { MediaFrame } from '@/components/media/MediaFrame';
 import { RegionLayer } from '@/components/media/RegionLayer';
 import { SEVERITY_COLOR, StatusBadge } from '@/components/ui/badges';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { cn } from '@/components/ui/cn';
 import { useInsight } from '../hooks';
 import {
   EASE,
+  aiAnalysed,
+  aiObjectsLine,
   captureWhen,
   evidenceAtSite,
   firstSentence,
-  provenanceLabel,
+  humanProvenanceDetail,
   type LeadPick,
   type StatusFilter,
   type StatusWiden,
@@ -49,6 +52,9 @@ const letter: Variants = {
  * The lead: the single most consequential open finding in the current filters.
  * Hierarchy does the work — one oversized severity word, one sentence, the
  * facts an operator needs, and the stamped evidence frame from Cloudinary.
+ * Every fact carries its source: the finding is human classified (sample
+ * annotation or entered at ingest), what Cloudinary's AI saw in the frame is AI
+ * detected, and the choice of lead and the evidence count are system derived.
  */
 export function LeadFinding({
   lead,
@@ -141,6 +147,8 @@ function LeadPanel({
   const evidence = evidenceAtSite(assets, asset.site, finding.category);
   const when = captureWhen(asset, now);
   const titleId = `lead-${finding.id}`;
+  const ai = aiAnalysed(asset) ? asset.ai : undefined;
+  const objects = aiObjectsLine(asset);
 
   return (
     <motion.section
@@ -157,7 +165,10 @@ function LeadPanel({
             <span className="label">
               Lead · most severe {lead.basis} finding<span className="hidden sm:inline"> in view</span>
             </span>
-            <span className="shrink-0 font-mono text-[11px] text-ink-3">{finding.id}</span>
+            <span className="flex shrink-0 items-center gap-2">
+              <ProvenanceBadge kind="system" detail="ranked" className="hidden sm:inline-flex" />
+              <span className="font-mono text-[11px] text-ink-3">{finding.id}</span>
+            </span>
           </motion.div>
 
           <SeverityWord severity={finding.severity} />
@@ -181,8 +192,28 @@ function LeadPanel({
                 {firstSentence(finding.action)}
               </span>
             </p>
-            <span className="label mt-3 inline-block border-t border-line pt-1.5 text-[9.5px]">{provenanceLabel(asset)}</span>
+            <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-line pt-2">
+              <ProvenanceBadge kind="human" detail={humanProvenanceDetail(asset)} />
+              <span className="text-[11.5px] text-ink-3">
+                title, severity, category, status{finding.region ? ', observation and marked region' : ' and observation'}
+              </span>
+            </div>
           </motion.div>
+
+          {ai && (ai.caption || objects) && (
+            <motion.div variants={rise} className="mt-4 max-w-[60ch] rounded-[8px] border border-line px-3 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="label">What Cloudinary sees</span>
+                <ProvenanceBadge kind="ai" detail="Cloudinary" />
+              </div>
+              {ai.caption && <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">{ai.caption}</p>}
+              {objects && (
+                <p className="mt-1 truncate font-mono text-[11px] text-ink-3" title="Objects Cloudinary detected, with its confidence">
+                  {objects}
+                </p>
+              )}
+            </motion.div>
+          )}
 
           <div aria-hidden className="min-h-5 flex-1" />
 
@@ -192,6 +223,7 @@ function LeadPanel({
               label="Evidence"
               value={pluralize(evidence.total, 'media record')}
               sub={`${CATEGORY_LABEL[finding.category]} · this site`}
+              subTitle="System derived: records at this site whose finding shares this category"
             />
             <Fact
               label="Captured"
@@ -287,6 +319,13 @@ function LeadMedia({ asset, finding, onInspect }: { asset: MediaAsset; finding: 
   const ready = loaded === src;
   const { insight, error } = useInsight(asset);
   const video = asset.resourceType === 'video';
+  // Objects Cloudinary's AI detected, boxed on the frame (photos: the boxes are in the frame's own percent).
+  const aiBoxes: Region[] = video
+    ? []
+    : (asset.ai?.objects ?? [])
+        .filter((o): o is typeof o & { box: Region } => Boolean(o.box))
+        .slice(0, 4)
+        .map((o) => ({ ...o.box, label: `${o.label.toUpperCase()} ${Math.round(o.confidence * 100)}%` }));
 
   return (
     <div className="flex min-w-0 flex-col border-t border-line bg-canvas lg:border-l lg:border-t-0">
@@ -322,6 +361,7 @@ function LeadMedia({ asset, finding, onInspect }: { asset: MediaAsset; finding: 
             )}
           />
           {ready && finding.region && <RegionLayer regions={[finding.region]} variant="annotation" />}
+          {ready && aiBoxes.length > 0 && <RegionLayer regions={aiBoxes} variant="ai" />}
           <span aria-hidden className="reticle" />
           {!ready && (
             <span className="absolute inset-0 flex items-center justify-center">
@@ -337,18 +377,25 @@ function LeadMedia({ asset, finding, onInspect }: { asset: MediaAsset; finding: 
         </span>
         <span className="flex items-center gap-3">
           {finding.region && (
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5" title={`Marked region · human classified · ${humanProvenanceDetail(asset)}`}>
               <span aria-hidden className="inline-block h-2 w-3 rounded-[2px] border border-high" />
-              {provenanceLabel(asset).toLowerCase()}
+              marked · human
             </span>
           )}
-          <span className="num" title="Face detections reported by Cloudinary (fl_getinfo), fetched live">
+          {aiBoxes.length > 0 && (
+            <span className="flex items-center gap-1.5" title="Objects detected by Cloudinary AI (coco_v2)">
+              <span aria-hidden className="inline-block h-2 w-3 rounded-[2px] border border-signal" />
+              objects · AI
+            </span>
+          )}
+          <span className="num flex items-center gap-1.5" title="Face detections reported by Cloudinary (fl_getinfo), fetched live">
+            <ProvenanceBadge kind="ai" detail="fl_getinfo" className="py-0 text-[9.5px]" />
             {insight ? (
               <span className="text-ink-2">{faceDetections(insight.faces.length)}</span>
             ) : (
-              <>
+              <span>
                 face detections · <span className="text-ink-2">{error ? 'n/a' : '…'}</span>
-              </>
+              </span>
             )}
           </span>
         </span>

@@ -8,11 +8,14 @@ import {
   INTEGRITY_HELP,
   STEP_DEFINITIONS,
   createStep,
+  objectHints,
   stepsFor,
   type FieldDef,
   type Integrity,
+  type ObjectHint,
   type PipelineStep,
   type StepGroup,
+  type StepKind,
   type StepParams,
 } from '@/lib/cloudinary/pipeline';
 import { sanitizeColor } from '@/lib/cloudinary/url';
@@ -23,6 +26,22 @@ const INTEGRITY_DOT: Record<Integrity, string> = {
   'ai-edit': 'bg-medium',
   generative: 'bg-high',
 };
+
+/** Which of the asset's object hints each object prompt suggests, so the three steps do not all say the same thing. */
+const HINT_INDEX: Partial<Record<StepKind, number>> = { gen_replace: 0, gen_recolor: 1, gen_remove: 2 };
+
+/**
+ * The placeholder and help for an object prompt: an object from this frame — one Cloudinary
+ * detected, else one the record's tags name — never another frame's object.
+ */
+function objectPrompt(field: FieldDef, kind: StepKind, hints: ObjectHint[]): Pick<FieldDef, 'placeholder' | 'help'> {
+  if (field.hint !== 'object' || !hints.length) return { placeholder: field.placeholder, help: field.help };
+  const hint = hints[HINT_INDEX[kind] ?? 0] ?? hints[0];
+  return {
+    placeholder: `e.g. ${hint.text}`,
+    help: hint.source === 'ai' ? 'Example: an object Cloudinary’s AI detected in this frame.' : 'Example: an object named in this record’s tags.',
+  };
+}
 
 export function PipelineEditor({
   asset,
@@ -167,6 +186,7 @@ function StepCard({
   const def = STEP_DEFINITIONS[step.kind];
   const applies = def.appliesTo.includes(asset.resourceType);
   const component = applies ? def.build(step.params, { asset }) : null;
+  const hints = def.fields.some((f) => f.hint === 'object') ? objectHints(asset) : [];
 
   return (
     <Reorder.Item
@@ -230,7 +250,12 @@ function StepCard({
             <div className="grid gap-2.5 border-t border-line px-3 py-3 sm:grid-cols-2">
               <p className="text-[11.5px] leading-relaxed text-ink-3 sm:col-span-2">{def.description}</p>
               {def.fields.map((field) => (
-                <Field key={field.key} field={field} value={step.params[field.key]} onChange={(v) => onParams({ [field.key]: v })} />
+                <Field
+                  key={field.key}
+                  field={{ ...field, ...objectPrompt(field, step.kind, hints) }}
+                  value={step.params[field.key]}
+                  onChange={(v) => onParams({ [field.key]: v })}
+                />
               ))}
             </div>
           </motion.div>

@@ -49,10 +49,10 @@ const STAGES: Stage[] = [
   {
     id: 'upload',
     name: 'Upload',
-    role: 'Browser straight to Cloudinary. No server in between.',
+    role: 'Browser straight to Cloudinary. The server only signs the request.',
     params: [
       ['auto/upload', 'Upload API · image or video'],
-      ['upload_preset', 'unsigned · no API secret'],
+      ['signature', 'server-signed · API secret stays on the server'],
       ['tags', 'visualops · category · site'],
       ['context', 'title · site · severity · note'],
     ],
@@ -64,18 +64,19 @@ const STAGES: Stage[] = [
     params: [
       ['public_id', 'identity of the capture'],
       ['resource_type', 'image · video'],
-      ['list/<tag>.json', 'tag sync into VisualOps'],
+      ['Search API', 'records read back server-side'],
       ['context.custom', 'fields travel with the file'],
     ],
   },
   {
     id: 'ai',
     name: 'AI',
-    role: 'Cloudinary’s models read the frame.',
+    role: 'Cloudinary’s models read the frame. Always labelled AI detected.',
     params: [
+      ['detection', 'captioning · coco_v2 objects (team cloud)'],
+      ['auto_tagging', 'detected labels become tags'],
       ['fl_getinfo', 'g_auto crop + face detections'],
       ['g_auto', 'subject-aware gravity'],
-      ['e_pixelate_faces', 'redaction before sharing'],
     ],
   },
   {
@@ -196,7 +197,7 @@ function readouts(
       state: 'ready',
       source: 'Config',
       primary: `cloud_name ${ENV_SETTINGS.cloudName}`,
-      secondary: ENV_SETTINGS.uploadPreset ? 'unsigned preset configured' : 'no preset · read-only demo',
+      secondary: ENV_SETTINGS.uploadPreset ? 'unsigned preset configured' : 'no browser preset · signed uploads need the server',
     },
     store: m
       ? {
@@ -515,7 +516,7 @@ export function TelemetryFlow() {
       <div className="flex flex-col gap-x-6 gap-y-2 border-t border-line py-5 sm:flex-row sm:items-baseline sm:justify-between">
         <p className="text-[13px] leading-relaxed text-ink-3">
           The Studio runs these same steps on one capture:{' '}
-          <span className="whitespace-nowrap font-mono text-[12px] text-ink-2">Upload → Analyze → Tag</span>{' '}
+          <span className="whitespace-nowrap font-mono text-[12px] text-ink-2">Ingest → Understand → Classify</span>{' '}
           <span className="whitespace-nowrap font-mono text-[12px] text-ink-2">→ Transform → Optimize → Index</span>.
         </p>
         <Link

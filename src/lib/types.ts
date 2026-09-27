@@ -49,6 +49,28 @@ export interface Finding {
   region?: Region;
 }
 
+/** An object Cloudinary's AI detected in the frame. `box` is in percent of the frame (0–100). */
+export interface AiObject {
+  label: string;
+  /** 0–1, as returned by Cloudinary. */
+  confidence: number;
+  box?: Region;
+}
+
+/**
+ * What Cloudinary's AI (AI Content Analysis add-on: captioning + object detection with
+ * auto-tagging) returned for an asset. Always machine-generated — label it "AI detected".
+ */
+export interface AiUnderstanding {
+  caption?: string;
+  objects: AiObject[];
+  /** Tags Cloudinary added automatically (auto_tagging). */
+  tags: string[];
+  /** e.g. "captioning v6 · coco v2". */
+  model?: string;
+  analyzedAt?: string;
+}
+
 export interface MediaAsset {
   id: string;
   cloudName: string;
@@ -90,6 +112,8 @@ export interface MediaAsset {
    */
   collection?: 'field' | 'reference';
   finding?: Finding;
+  /** Cloudinary AI understanding of the media, when it has been analysed. */
+  ai?: AiUnderstanding;
 }
 
 export interface CloudSettings {

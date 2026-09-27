@@ -9,12 +9,14 @@ import { pluralize } from '@/lib/format';
 import { filterLabel, relaxations, type Relaxation } from '@/lib/search/query';
 import { useDeviceTier, useReducedMotionPref } from '@/components/motion/hooks';
 import { Kbd } from '@/components/ui/badges';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { cn } from '@/components/ui/cn';
 import { useModKey } from '@/components/ui/useModKey';
 import { useConsoleActions, useConsoleData } from '../store';
+import { aiAnalysed, humanProvenanceDetails } from '../incidents/model';
 import {
-  ASK_EXAMPLES,
   buildFacets,
+  examplesFor,
   FLIGHT_CAP,
   indexOrder,
   RESULT_PAGE,
@@ -31,9 +33,31 @@ import { EvidencePreview } from './EvidencePreview';
 import { AskIdle } from './AskIdle';
 import { Understanding } from './Understanding';
 
-const RETRY_TERMS = ['crack', 'rebar', 'wet floor', 'Building B', 'critical'];
-
 const plural = pluralize;
+
+/**
+ * Suggestions for a question that found nothing: the workspace's most common tags, its busiest
+ * site and its worst severity — each kept only if asking it really returns records here.
+ */
+function retryTerms(pool: MediaAsset[], sites: string[], now: number): string[] {
+  const tagCount = new Map<string, number>();
+  for (const a of pool) for (const t of a.tags) tagCount.set(t.toLowerCase(), (tagCount.get(t.toLowerCase()) ?? 0) + 1);
+  const siteCount = new Map<string, number>();
+  for (const a of pool) siteCount.set(a.site, (siteCount.get(a.site) ?? 0) + 1);
+  const byCount = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
+  const worst = (['critical', 'high', 'medium', 'low'] as const).find((s) => pool.some((a) => a.finding?.severity === s));
+  const candidates = [
+    ...byCount(tagCount).map((t) => t.replace(/-/g, ' ')),
+    ...byCount(siteCount).filter((s) => sites.includes(s)).slice(0, 1),
+    ...(worst ? [worst] : []),
+  ];
+  const out: string[] = [];
+  for (const term of candidates) {
+    if (out.length >= 5) break;
+    if (!out.includes(term) && previewQuery(term, pool, sites, now).length > 0) out.push(term);
+  }
+  return out;
+}
 
 /** Stage-2 candidates: records that match any understood filter or keyword. */
 function candidatesOf(run: AskRun): Set<string> | null {
@@ -41,14 +65,10 @@ function candidatesOf(run: AskRun): Set<string> | null {
   return new Set([...(run.filterIds ?? []), ...(run.keywordIds ?? [])]);
 }
 
-/** Where the findings' words come from, for the footer (uploads and syncs are not sample annotations). */
+/** Where the findings' words come from, for the footer: who classified them (sample annotation, ingest…). */
 function provenanceNote(pool: MediaAsset[]): string | null {
-  const annotated = pool.filter((a) => a.finding);
-  if (!annotated.length) return null;
-  const samples = annotated.filter((a) => a.source === 'sample').length;
-  if (samples === annotated.length) return 'Findings are sample annotations';
-  if (samples === 0) return 'Findings recorded at ingest';
-  return 'Findings: sample annotations and ingest records';
+  const details = humanProvenanceDetails(pool.filter((a) => a.finding));
+  return details.length ? details.join(' · ') : null;
 }
 
 /**
@@ -56,7 +76,7 @@ function provenanceNote(pool: MediaAsset[]): string | null {
  * only when the dataset changes or its own state does.
  */
 export const AskBody = memo(function AskBody({ onClose }: { onClose: () => void }) {
-  const { assets, now } = useConsoleData();
+  const { assets, now, workspace } = useConsoleData();
   const { inspect, reportFor, openInStudio } = useConsoleActions();
   const mod = useModKey();
   const tier = useDeviceTier();
@@ -69,12 +89,14 @@ export const AskBody = memo(function AskBody({ onClose }: { onClose: () => void 
   const strip = useMemo(() => indexOrder(pool), [pool]);
   const stripIds = useMemo(() => new Set(strip.map((a) => a.id)), [strip]);
   const photos = useMemo(() => pool.filter((a) => a.resourceType === 'image').length, [pool]);
+  const analysed = useMemo(() => pool.filter(aiAnalysed).length, [pool]);
   const examples = useMemo(
-    () => ASK_EXAMPLES.map((query) => ({ query, ids: previewQuery(query, pool, sites, now) })),
+    () => examplesFor(pool).map((query) => ({ query, ids: previewQuery(query, pool, sites, now) })),
     [pool, sites, now],
   );
   const facets = useMemo(() => buildFacets(pool, sites, now), [pool, sites, now]);
   const provenance = useMemo(() => provenanceNote(pool), [pool]);
+  const retry = useMemo(() => retryTerms(pool, sites, now), [pool, sites, now]);
 
   const { query, setQuery, ask: askNow, submit, run, stage, committed, active, setActive } = useAskSearch({
     pool,
@@ -278,6 +300,7 @@ export const AskBody = memo(function AskBody({ onClose }: { onClose: () => void 
         photos={photos}
         videos={pool.length - photos}
         sites={sites.length}
+        analysed={analysed}
       />
       <p className="sr-only" aria-live="polite">
         {stage === 4 && committed ? `${plural(committed.result.hits.length, 'result')} for ${committed.query}` : ''}
@@ -317,7 +340,7 @@ export const AskBody = memo(function AskBody({ onClose }: { onClose: () => void 
                 </div>
               )}
               {hits.length === 0 ? (
-                <NoResults run={committed} pool={pool} sites={sites} now={now} onAsk={ask} />
+                <NoResults run={committed} pool={pool} sites={sites} now={now} retry={retry} onAsk={ask} />
               ) : (
                 hits.slice(0, shownCount).map((hit, i) => {
                   const tileFlight = flight && i < FLIGHT_CAP && stripIds.has(hit.asset.id);
@@ -365,7 +388,16 @@ export const AskBody = memo(function AskBody({ onClose }: { onClose: () => void 
           </div>
         ) : (
           <div className={cn('transition-opacity duration-200', run && 'pointer-events-none opacity-40')}>
-            <AskIdle examples={examples} facets={facets} activeExample={exampleActive} onAsk={ask} onPreview={onPreview} />
+            <AskIdle
+              examples={examples}
+              facets={facets}
+              activeExample={exampleActive}
+              analysed={analysed}
+              total={pool.length}
+              sampleWorkspace={workspace === 'sample'}
+              onAsk={ask}
+              onPreview={onPreview}
+            />
           </div>
         )}
       </motion.div>
@@ -382,7 +414,12 @@ export const AskBody = memo(function AskBody({ onClose }: { onClose: () => void 
             plural(pool.length, 'field record')
           )}
         </span>
-        {provenance && <span className="hidden text-[11px] text-ink-3 md:inline">{provenance}</span>}
+        {(provenance || analysed > 0) && (
+          <span className="hidden min-w-0 items-center gap-1.5 md:flex" aria-label="Where the matched fields come from">
+            {provenance && <ProvenanceBadge kind="human" detail={provenance} />}
+            {analysed > 0 && <ProvenanceBadge kind="ai" detail={`Cloudinary · ${analysed}`} className="hidden lg:inline-flex" />}
+          </span>
+        )}
         <span className="ml-auto hidden items-center gap-1.5 text-[11px] text-ink-3 xl:flex">
           <Kbd>↑</Kbd>
           <Kbd>↓</Kbd>
@@ -430,12 +467,15 @@ function NoResults({
   pool,
   sites,
   now,
+  retry,
   onAsk,
 }: {
   run: AskRun;
   pool: MediaAsset[];
   sites: string[];
   now: number;
+  /** Terms that really return records in this workspace. */
+  retry: string[];
   onAsk: (q: string) => void;
 }) {
   const options = useMemo(() => relaxations(run.parsed, pool, { sites, now }), [run, pool, sites, now]);
@@ -468,13 +508,13 @@ function NoResults({
         <>
           <p className="mt-2 max-w-[52ch] text-[13px] leading-relaxed text-ink-3">
             {onlyWords
-              ? 'Keywords are matched against tags, titles, file names and sites — nothing is inferred. Try a site, a severity, or one of these:'
+              ? 'Keywords are matched against human-classified tags, titles, finding IDs, file names and sites, and Cloudinary’s AI captions, objects and auto-tags where media has been analysed — nothing else is inferred. Try a site, a severity, or one of these:'
               : run.filterCount
                 ? 'Filters are combined, so each one narrows the set, and relaxing any single one still returns nothing. Try fewer terms, a site name, a severity, or one of these:'
                 : 'Try a site, a severity, or one of these:'}
           </p>
           <div className="mt-4 flex flex-wrap gap-1.5">
-            {RETRY_TERMS.map((term) => (
+            {retry.map((term) => (
               <button key={term} type="button" onClick={() => onAsk(term)} className="chip transition-colors hover:border-ink-3 hover:text-ink">
                 {term}
               </button>

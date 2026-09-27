@@ -1,4 +1,4 @@
-import { capturedAtBasis, type ReportKind } from '@/lib/report';
+import { annotationSource, capturedAtBasis, isSampleAnnotation, type AnnotationSource, type ReportKind } from '@/lib/report';
 import type { MediaAsset, Region } from '@/lib/types';
 import { formatDateTime, isoDay } from '@/lib/format';
 import type { EvidenceProbe } from './job';
@@ -20,11 +20,34 @@ export const groupHash = (hash: string): string => (hash.match(/.{1,8}/g) ?? [ha
 
 export const exportBase = (kind: ReportKind, generatedAt: string): string => `visualops-${kind}-${isoDay(generatedAt)}`;
 
-/** Where a finding's text came from. The bundled dataset's findings are team-written sample annotations. */
+const PROVENANCE_LABEL: Record<AnnotationSource, string> = {
+  'sample-annotation': 'Sample annotation',
+  ingest: 'Entered at ingest',
+  synced: 'Synced record',
+};
+
+/** Where a finding's text came from. Sample-workspace findings are team-written sample annotations. */
 export function provenance(asset: MediaAsset): string {
-  if (asset.source === 'upload') return 'Entered at ingest';
-  if (asset.source === 'sync') return 'Synced record';
-  return 'Sample annotation';
+  return PROVENANCE_LABEL[annotationSource(asset)];
+}
+
+/** The qualifier a "Human classified" provenance badge carries for a record. */
+export function humanDetail(asset: MediaAsset): string {
+  return provenance(asset).toLowerCase();
+}
+
+/** Cloudinary's detected objects in short form ("truck 77%, person 61%"), for table cells. */
+export function aiLabels(asset: MediaAsset, limit = 3): string | undefined {
+  const ai = asset.ai;
+  if (!ai) return undefined;
+  const labels = ai.objects.slice(0, limit).map((o) => `${o.label} ${Math.round(o.confidence * 100)}%`);
+  if (labels.length) return labels.join(', ');
+  return ai.tags.slice(0, limit).join(', ') || (ai.caption ? 'caption only' : 'no objects detected');
+}
+
+/** Why a record has no AI understanding, in the report's words. */
+export function aiMissing(asset: MediaAsset): string {
+  return asset.resourceType === 'video' ? 'Video — Cloudinary AI analysis runs on images' : 'Not analysed by Cloudinary AI';
 }
 
 export const SECTION_TITLE: Record<ReportKind, string> = {
@@ -57,7 +80,7 @@ export function captureText(asset: MediaAsset): CaptureText {
   if (capturedAtBasis(asset) === 'sample-relative') {
     return { when, basis: 'sample time, relative to the viewer’s clock', short: 'sample time' };
   }
-  return asset.source === 'sample' ? { when } : { when, basis: 'time recorded by Cloudinary', short: 'recorded' };
+  return isSampleAnnotation(asset) ? { when } : { when, basis: 'time recorded by Cloudinary', short: 'recorded' };
 }
 
 /* ------------------------------------------------------------------------ */

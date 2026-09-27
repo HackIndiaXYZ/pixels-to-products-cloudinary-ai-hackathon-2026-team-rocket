@@ -8,12 +8,15 @@ import { thumbUrl } from '@/lib/cloudinary/media';
 import { pluralize } from '@/lib/format';
 import { CloudImage } from '@/components/media/CloudImage';
 import { SEVERITY_COLOR, StatusBadge } from '@/components/ui/badges';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { cn } from '@/components/ui/cn';
-import { EASE, captureWhen, firstSentence, groupBySeverity, provenanceSummary, type CaptureWhen } from './model';
+import { EASE, aiAnalysed, captureWhen, firstSentence, groupBySeverity, humanProvenanceDetails, type CaptureWhen } from './model';
 
 /**
  * Density follows consequence: critical/high rows carry a large frame and the
- * observation, medium rows a title line, low rows a single quiet line.
+ * observation, medium rows a title line, low rows a single quiet line. The
+ * findings are human classified; the order is system derived; a row whose media
+ * Cloudinary's AI has described carries its caption (major rows) or an "ai" mark.
  */
 type Tier = 'major' | 'standard' | 'minor';
 const TIER: Record<Severity, Tier> = { critical: 'major', high: 'major', medium: 'standard', low: 'minor' };
@@ -42,16 +45,16 @@ export function FindingList({
 
   return (
     <section aria-labelledby="incident-list-title" className="panel overflow-hidden">
-      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-4 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-4 py-3">
         <h2 id="incident-list-title" className="text-[13.5px] font-semibold">
           {hasLead ? 'Also in view' : 'In view'}
         </h2>
-        <span className="label">
-          {pluralize(records.length, 'finding')}
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="label">{pluralize(records.length, 'finding')}</span>
           {!empty && (
             <>
-              {' '}
-              · worst first · {provenanceSummary(records)}
+              <ProvenanceBadge kind="system" detail="worst first" />
+              <ProvenanceBadge kind="human" detail={humanProvenanceDetails(records.map((r) => r.asset)).join(' · ')} />
             </>
           )}
         </span>
@@ -166,6 +169,12 @@ function FindingRow({ record, now, onInspect }: { record: FindingRecord; now: nu
           </span>
           <span className="mt-1 block text-[15px] font-medium leading-snug text-ink">{finding.title}</span>
           <span className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-ink-2">{firstSentence(finding.summary)}</span>
+          {aiAnalysed(asset) && asset.ai?.caption && (
+            <span className="mt-1.5 flex min-w-0 items-center gap-1.5" title={`AI detected · Cloudinary caption: ${asset.ai.caption}`}>
+              <ProvenanceBadge kind="ai" className="py-0 text-[9.5px]" />
+              <span className="min-w-0 truncate text-[12px] text-ink-3">{asset.ai.caption}</span>
+            </span>
+          )}
           <span className="mt-2 block truncate text-[12px] text-ink-3">{place(asset)}</span>
           <span className="mt-2.5 flex flex-wrap items-center gap-2 md:hidden">
             <StatusBadge status={finding.status} />
@@ -217,6 +226,11 @@ function FindingRow({ record, now, onInspect }: { record: FindingRecord; now: nu
           <span className="line-clamp-2 text-[13.5px] font-medium leading-snug text-ink">{finding.title}</span>
           <span className="mt-0.5 block truncate text-[12px] text-ink-3" title={`${place(asset)} · ${CATEGORY_LABEL[finding.category]}`}>
             <span className="font-mono text-[11px]">{finding.id}</span> · {place(asset)} · {CATEGORY_LABEL[finding.category]}
+            {aiAnalysed(asset) && (
+              <span className="ml-1.5 font-mono text-[9.5px] uppercase tracking-[0.06em] text-signal/80" title="Cloudinary AI has described this media">
+                ai<span className="sr-only"> analysed</span>
+              </span>
+            )}
           </span>
           <StatusLine status={finding.status} when={when.relative} />
         </span>

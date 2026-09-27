@@ -3,32 +3,19 @@
 import { Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import type { MediaAsset } from '@/lib/types';
-import { createStep, type PipelineStep, type StepKind, type StepParams } from '@/lib/cloudinary/pipeline';
+import { createStep, objectHints, type PipelineStep, type StepKind, type StepParams } from '@/lib/cloudinary/pipeline';
 import { sanitizePrompt } from '@/lib/cloudinary/url';
 import { cn } from '@/components/ui/cn';
 
-const BACKGROUND_PROMPTS: Array<{ label: string; prompt: string; audience: 'operations' | 'general' }> = [
-  { label: 'Clean depot floor', prompt: 'clean concrete depot floor in soft overcast daylight', audience: 'operations' },
-  { label: 'Neutral grey studio', prompt: 'seamless neutral grey studio backdrop with soft even light', audience: 'operations' },
-  { label: 'Site at golden hour', prompt: 'construction site at golden hour with a clear sky', audience: 'operations' },
-  { label: 'Workshop bench', prompt: 'tidy engineering workshop bench with tool wall behind', audience: 'operations' },
-  { label: 'White marble', prompt: 'polished white marble countertop with soft warm studio light', audience: 'general' },
-  { label: 'Rainy neon street', prompt: 'rainy city street at night with neon reflections', audience: 'general' },
+/** Neutral backdrops for briefings and asset registers — not tied to any one frame. */
+const BACKGROUND_PROMPTS: Array<{ label: string; prompt: string }> = [
+  { label: 'Clean depot floor', prompt: 'clean concrete depot floor in soft overcast daylight' },
+  { label: 'Neutral grey studio', prompt: 'seamless neutral grey studio backdrop with soft even light' },
+  { label: 'Site at golden hour', prompt: 'construction site at golden hour with a clear sky' },
+  { label: 'Workshop bench', prompt: 'tidy engineering workshop bench with tool wall behind' },
 ];
 
 const DELIVERY: StepKind[] = ['auto_quality', 'auto_format'];
-
-/** Record tags that describe a condition, place or process rather than an object you could point at. */
-const NOT_AN_OBJECT =
-  /hazard|resolution|infrastructure|construction|housekeeping|maintenance|inventory|equipment|quality|monitoring|sample|production|overnight|electrification|electrical|aerial|drone|cctv|work-at-height|fleet|montage|repair|intake|pre-trip|check-in|receiving|stores|product|video|collapse|crack|corrosion|rust|debris|void|cleaning|demolition|welding|hot-work|lobby|ppe|washroom|plant|kitchen|walkway|people/;
-
-/**
- * Example objects for this photo's prompts, from its own record tags, so the
- * placeholders suggest something in this frame instead of one photo's mop.
- */
-function objectHints(asset: MediaAsset): string[] {
-  return asset.tags.filter((t) => !NOT_AN_OBJECT.test(t)).map((t) => t.replace(/-/g, ' '));
-}
 
 /**
  * Canvas width for generative fill (c_pad) that never upscales the photo: just wide
@@ -80,16 +67,22 @@ export function GenerativePanel({
   }
 
   const apply = (kind: StepKind, params: StepParams) => onChange(upsertStep(steps, kind, params));
+  // Placeholders name objects in this frame: Cloudinary's detections first, then the record's tags.
   const hints = objectHints(asset);
   const example = (i: number) => {
     const hint = hints[i] ?? hints[0];
-    return hint ? `e.g. ${hint}` : 'Describe the object';
+    return hint ? `e.g. ${hint.text}` : 'Describe the object';
   };
+  const hintSource = hints.some((h) => h.source === 'ai')
+    ? 'Examples are objects Cloudinary’s AI detected in this frame.'
+    : hints.length
+      ? 'Examples come from this record’s tags.'
+      : null;
 
   return (
     <div className="space-y-4">
       <p className="rounded-[9px] border border-[color-mix(in_oklab,var(--color-high)_35%,transparent)] bg-[color-mix(in_oklab,var(--color-high)_6%,transparent)] px-3 py-2 text-[12px] leading-relaxed text-ink-2">
-        Generative edits synthesise new pixels. VisualOps marks the output <span className="text-high">Generative</span> and never uses it as inspection evidence — use it for briefings, catalogs and remediation previews.
+        Generative edits synthesise new pixels. VisualOps marks the output <span className="text-high">Generative</span> and never uses it as inspection evidence — use it for briefings, asset registers and remediation previews.
       </p>
 
       <Section title="Background" hint="e_gen_background_replace">
@@ -104,7 +97,7 @@ export function GenerativePanel({
             className="input h-8 text-[12.5px]"
             value={bgPrompt}
             onChange={(e) => setBgPrompt(e.target.value)}
-            placeholder="Describe the new background…"
+            placeholder="Describe the new background (empty: Cloudinary chooses)…"
             maxLength={140}
             aria-label="Background prompt"
           />
@@ -113,7 +106,7 @@ export function GenerativePanel({
           </button>
         </form>
         <div className="flex flex-wrap gap-1.5">
-          {BACKGROUND_PROMPTS.filter((p) => asset.collection === 'reference' || p.audience === 'operations').map((p) => (
+          {BACKGROUND_PROMPTS.map((p) => (
             <button
               key={p.label}
               type="button"
@@ -131,6 +124,8 @@ export function GenerativePanel({
           ))}
         </div>
       </Section>
+
+      {hintSource && <p className="text-[11.5px] text-ink-3">{hintSource}</p>}
 
       <Section title="Replace an object" hint="e_gen_replace">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">

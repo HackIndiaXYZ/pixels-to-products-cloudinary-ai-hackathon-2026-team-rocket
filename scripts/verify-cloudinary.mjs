@@ -6,16 +6,25 @@
  *      Cloudinary's CDNs (Akamai's escaped quotes, Cloudflare's bare ones).
  *   2. Audit stamps: sample assets (synthetic capture times) stamp `SAMPLE`,
  *      never a date; uploaded assets stamp their capture day.
- *   3. Dataset: every sample asset's thumbnail, display rendition, original and
+ *   3. Contract: the sample dataset is the 15 field records (no generic
+ *      Cloudinary reference assets), there are 9 pipeline presets, every preset
+ *      suggestion names a record that exists, every video carries its duration,
+ *      and no generative step ships with a prompt written for one sample frame.
+ *   4. Dataset: every sample asset's thumbnail, display rendition, original and
  *      fl_getinfo (AI signals) URL resolves on Cloudinary, the live
- *      Server-Timing parses, and the record's dimensions are Cloudinary's.
- *   4. Preset suggestions: face redaction is only suggested for assets where
+ *      Server-Timing parses, and the record's dimensions, byte size and (for
+ *      video) duration are Cloudinary's own (`owidth`/`oheight`, `obytes`, `odu`).
+ *   5. Preset suggestions: face redaction is only suggested for assets where
  *      Cloudinary actually detects faces.
- *   5. Code export: the exact Node SDK transformation objects VisualOps exports,
+ *   6. Search: the example questions return the records they should, with no
+ *      silently dropped words, and matches on Cloudinary's AI understanding
+ *      (caption, detected objects, auto-tags) are attributed to the AI — never
+ *      to the human-classified record — while a generic category stays strict.
+ *   7. Code export: the exact Node SDK transformation objects VisualOps exports,
  *      run through the real `cloudinary` SDK, and the exact next-cloudinary props,
  *      run through next-cloudinary's URL loader, produce the same transformation
  *      components as the URL VisualOps renders.
- *   6. Presets: every pipeline preset renders on a representative asset
+ *   8. Presets: every pipeline preset renders on a representative asset
  *      (HTTP 200, or 423 while Cloudinary finishes asynchronous AI work), and
  *      the smart crop never upscales an image while keeping its aspect ratio.
  *
@@ -23,6 +32,8 @@
  *         npm run verify:cloudinary -- --quick (skip rendering presets, smart crops and report frames)
  *
  * No credentials are needed: everything runs against Cloudinary's public demo cloud.
+ * (AI Content Analysis needs the team's own cloud and the Admin API, so it is not
+ * called here; the search checks use a record shaped exactly like its output.)
  */
 import ts from 'typescript';
 import { createRequire } from 'node:module';
@@ -76,6 +87,7 @@ const { probeUrl, parseServerTiming, IMAGE_ACCEPT } = await lib('cloudinary/prob
 const { parseInsight } = await lib('cloudinary/insights.mjs');
 const { isoDay } = await lib('format.mjs');
 const report = await lib('report.mjs');
+const search = await lib('search/query.mjs');
 
 const cloudinary = require('cloudinary').v2;
 const { constructCloudinaryUrl } = await import('@cloudinary-util/url-loader');
@@ -205,6 +217,91 @@ console.log('\nAudit stamps — sample capture times are synthetic, so {date} ne
 }
 
 /* ---------------------------------------------------------------------- */
+/* 3b. Contract — dataset and presets                                       */
+/* ---------------------------------------------------------------------- */
+
+const EXPECTED_ASSETS = 15;
+const EXPECTED_PRESETS = 9;
+/** Generative steps whose prompts name something in one particular frame. */
+const PROMPT_STEPS = ['gen_background_replace', 'gen_replace', 'gen_recolor', 'gen_remove'];
+
+console.log('\nContract — the sample dataset and the pipeline presets');
+{
+  const ids = new Set(assets.map((a) => a.id));
+  record(
+    'contract',
+    `${EXPECTED_ASSETS} sample records`,
+    assets.length === EXPECTED_ASSETS && ids.size === assets.length,
+    `${assets.length} assets, ${ids.size} unique ids`,
+  );
+  const notField = assets.filter((a) => a.collection !== 'field');
+  record(
+    'contract',
+    'every sample is a field record (no generic Cloudinary reference assets)',
+    notField.length === 0,
+    notField.length ? `not field: ${notField.map((a) => a.id).join(', ')}` : 'collection: field × all',
+  );
+  const noAi = assets.filter((a) => a.ai !== undefined);
+  record(
+    'contract',
+    'no sample claims an AI result (AI Content Analysis runs on the team cloud only)',
+    noAi.length === 0,
+    noAi.length ? `ai set on ${noAi.map((a) => a.id).join(', ')}` : 'ai: undefined × all',
+  );
+  const videos = assets.filter((a) => a.resourceType === 'video');
+  const badVideos = videos.filter((a) => !(a.duration > 0) || !((a.posterOffset ?? 1) < a.duration));
+  record(
+    'contract',
+    `every video carries its duration (${videos.length} videos)`,
+    videos.length > 0 && badVideos.length === 0,
+    badVideos.length
+      ? `missing or poster past the end: ${badVideos.map((a) => a.id).join(', ')}`
+      : videos.map((a) => `${a.id} ${a.duration}s`).join(', '),
+  );
+  const presetIds = new Set(pipeline.PRESETS.map((p) => p.id));
+  record(
+    'contract',
+    `${EXPECTED_PRESETS} pipeline presets`,
+    pipeline.PRESETS.length === EXPECTED_PRESETS && presetIds.size === pipeline.PRESETS.length,
+    pipeline.PRESETS.map((p) => p.id).join(', '),
+  );
+  const dangling = pipeline.PRESETS.flatMap((p) =>
+    (p.suggestedFor ?? [])
+      .filter((id) => assets.find((a) => a.id === id)?.resourceType !== p.resourceType)
+      .map((id) => `${p.id} → ${id}`),
+  );
+  record(
+    'contract',
+    'every preset suggestion names an existing record of the preset’s media type',
+    dangling.length === 0,
+    dangling.length ? dangling.join(', ') : 'ok',
+  );
+  const seeded = PROMPT_STEPS.flatMap((kind) => {
+    const def = pipeline.STEP_DEFINITIONS[kind];
+    return def.fields.filter((f) => f.type === 'text' && pipeline.str(def.defaults[f.key]) !== '').map((f) => `${kind}.${f.key}`);
+  });
+  record(
+    'contract',
+    'generative steps start with empty prompts (no sample-specific defaults)',
+    seeded.length === 0,
+    seeded.length ? `pre-filled: ${seeded.join(', ')}` : PROMPT_STEPS.join(', '),
+  );
+  // Frame-specific preset prompts apply only to the frames the preset suggests.
+  const remediation = pipeline.PRESETS.find((p) => p.id === 'remediation-preview');
+  const suggested = assets.find((a) => remediation?.suggestedFor?.includes(a.id));
+  const other = assets.find((a) => a.resourceType === 'image' && !remediation?.suggestedFor?.includes(a.id));
+  const replaceOn = (asset) => pipeline.presetSteps(remediation, asset).find((s) => s.kind === 'gen_replace');
+  const onSuggested = suggested ? replaceOn(suggested) : undefined;
+  const onOther = other ? replaceOn(other) : undefined;
+  record(
+    'contract',
+    'remediation-preview prompts apply only to the frame they were written for',
+    Boolean(onSuggested?.params.from && onSuggested?.params.to && onOther && !onOther.params.from && !onOther.params.to),
+    `${suggested?.id}: “${onSuggested?.params.from}” → “${onSuggested?.params.to}”; ${other?.id}: “${onOther?.params.from ?? ''}” → “${onOther?.params.to ?? ''}”`,
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 /* 4. Dataset URLs                                                         */
 /* ---------------------------------------------------------------------- */
 
@@ -241,10 +338,32 @@ await Promise.all(
         failed.push(['dimensions', { kind: 'error', message: `record ${asset.width}×${asset.height} ≠ Cloudinary ${display.originalWidth}×${display.originalHeight}` }]);
       }
     }
+    // The stored file as Cloudinary describes it: a still's content-info describes the image for photos;
+    // for video only the playback rendition's `o*` fields describe the stored clip (a frame grab's do not).
+    const isVideo = asset.resourceType === 'video';
+    const stored = isVideo ? (outcomes[3]?.kind === 'ready' ? outcomes[3].metrics : undefined) : display;
+    let durationNote = '';
+    if (stored) {
+      if (asset.bytes !== undefined && stored.originalBytes !== undefined && stored.originalBytes !== asset.bytes) {
+        failed.push(['bytes', { kind: 'error', message: `record ${asset.bytes}B ≠ Cloudinary ${stored.originalBytes}B` }]);
+      }
+      if (!isVideo && stored.originalFormat && stored.originalFormat !== asset.format) {
+        failed.push(['format', { kind: 'error', message: `record ${asset.format} ≠ Cloudinary ${stored.originalFormat}` }]);
+      }
+      if (isVideo) {
+        if (stored.originalDuration === undefined) {
+          failed.push(['duration', { kind: 'error', message: 'Cloudinary reported no odu' }]);
+        } else if (!(Math.abs(stored.originalDuration - (asset.duration ?? 0)) <= 0.01)) {
+          failed.push(['duration', { kind: 'error', message: `record ${asset.duration ?? '—'} s ≠ Cloudinary ${stored.originalDuration} s` }]);
+        } else {
+          durationNote = `, ${stored.originalDuration} s (odu)`;
+        }
+      }
+    }
     const savings =
       display?.originalBytes && display.bytes
-        ? `, ${display.originalFormat} ${display.originalBytes}B → ${display.format} ${display.bytes}B`
-        : '';
+        ? `, ${display.originalFormat} ${display.originalBytes}B → ${display.format} ${display.bytes}B${durationNote}`
+        : durationNote;
     record(
       'dataset',
       `${asset.id} (${asset.resourceType})`,
@@ -273,6 +392,103 @@ for (const preset of pipeline.PRESETS.filter((p) => p.steps.some((s) => s.kind =
 }
 
 /* ---------------------------------------------------------------------- */
+/* 5b. Search — example questions and AI attribution                       */
+/* ---------------------------------------------------------------------- */
+
+console.log('\nSearch — example questions, and AI matches attributed to Cloudinary’s AI');
+{
+  const sites = Array.from(new Set(assets.map((a) => a.site)));
+  const ask = (q, pool = assets) => search.runQuery(search.parseQuery(q, sites, now), pool);
+  const idsOf = (result) => result.hits.map((h) => h.asset.id);
+  const HOUR = 3_600_000;
+  const within72h = (a) => now - new Date(a.capturedAt).getTime() < 72 * HOUR;
+  /** What each example must return on the sample dataset (exactly, as a set). */
+  const EXPECT = {
+    'Show severe structural findings': assets
+      .filter((a) => a.finding?.category === 'structural' && ['critical', 'high'].includes(a.finding.severity))
+      .map((a) => a.id),
+    'Find bridge inspection media': ['vo-bridge-truss'],
+    'Show images with cracks': ['vo-road-collapse'],
+    'Find recent safety incidents': assets.filter((a) => a.finding?.category === 'safety' && within72h(a)).map((a) => a.id),
+    sinkhole: ['vo-road-collapse'],
+    trucks: ['vo-fleet-checkin', 'vo-equipment-yard'],
+    'Show evidence related to VO-1042': ['vo-road-collapse'],
+  };
+  const missing = search.EXAMPLE_QUERIES.filter((q) => !(q in EXPECT));
+  record('search', 'every example question has an expectation', missing.length === 0, missing.length ? missing.join(', ') : `${search.EXAMPLE_QUERIES.length} examples`);
+  for (const q of search.EXAMPLE_QUERIES.filter((x) => x in EXPECT)) {
+    const result = ask(q);
+    const got = new Set(idsOf(result));
+    const want = new Set(EXPECT[q]);
+    const same = got.size === want.size && [...want].every((id) => got.has(id));
+    const honest = result.unmatchedKeywords.length === 0 && !result.relaxed;
+    record(
+      'search',
+      `“${q}”`,
+      same && honest && want.size > 0,
+      `${[...got].join(', ') || 'nothing'}${same ? '' : ` ≠ ${[...want].join(', ')}`}${honest ? '' : ` · unmatched [${result.unmatchedKeywords}]${result.relaxed ? ' · relaxed' : ''}`}`,
+    );
+  }
+
+  // A record shaped exactly like POST /api/assets/[id]/analyze leaves it: Cloudinary's caption and COCO
+  // objects in `ai`, and the auto-tag both on the asset's tags and listed again in ai.tags.
+  const base = assets.find((a) => a.id === 'vo-road-collapse');
+  const analysed = {
+    ...base,
+    id: 'check-ai-record',
+    tags: [...base.tags.filter((t) => t !== 'sinkhole'), 'truck'],
+    title: 'Carriageway failure at kerb line',
+    finding: { ...base.finding, id: 'VO-CHECK', title: 'Carriageway failure at kerb line' },
+    ai: {
+      caption: 'A large sinkhole has opened in the road beside a parked truck',
+      objects: [{ label: 'truck', confidence: 0.77, box: { x: 60, y: 20, w: 30, h: 25, label: 'TRUCK' } }],
+      tags: ['truck'],
+      model: 'captioning v6 · coco v2',
+    },
+  };
+  const pool = [analysed, ...assets.filter((a) => a.id !== base.id)];
+  const hitOf = (result, id) => result.hits.find((h) => h.asset.id === id);
+
+  const trucks = ask('trucks', pool);
+  const aiHit = hitOf(trucks, analysed.id);
+  const aiMatch = aiHit?.matches.find((m) => m.keyword === 'truck');
+  record(
+    'search',
+    '“trucks” finds a structural record whose truck Cloudinary detected — attributed to AI',
+    Boolean(aiMatch) && search.matchSourceOf(aiMatch) === 'ai' && Boolean(hitOf(trucks, 'vo-fleet-checkin')),
+    aiMatch ? `${analysed.id}: ${aiMatch.fields.join(' + ')} → ${search.matchSourceOf(aiMatch)}` : 'not returned',
+  );
+  const human = hitOf(trucks, 'vo-fleet-checkin')?.matches.find((m) => m.keyword === 'truck');
+  record(
+    'search',
+    'a human-tagged truck is attributed to the record, not the AI',
+    Boolean(human) && search.matchSourceOf(human) === 'human',
+    human ? `vo-fleet-checkin: ${human.fields.join(' + ')} → ${search.matchSourceOf(human)}` : 'not returned',
+  );
+  const caption = hitOf(ask('sinkhole', pool), analysed.id)?.matches.find((m) => m.keyword === 'sinkhole');
+  record(
+    'search',
+    '“sinkhole” matches the AI caption when no human field says it',
+    Boolean(caption) && caption.fields.length === 1 && caption.fields[0] === 'ai-caption',
+    caption ? `${caption.fields.join(' + ')}` : 'not returned',
+  );
+  const withoutAi = ask('trucks', [{ ...analysed, ai: undefined, tags: base.tags }, ...assets.filter((a) => a.id !== base.id)]);
+  record(
+    'search',
+    'without AI understanding the same record is not returned for “trucks”',
+    !hitOf(withoutAi, analysed.id),
+    idsOf(withoutAi).join(', '),
+  );
+  const strict = ask('equipment with trucks', pool);
+  record(
+    'search',
+    'a generic category word stays strict (“equipment with trucks” excludes the structural record)',
+    !hitOf(strict, analysed.id) && strict.hits.length > 0,
+    idsOf(strict).join(', '),
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 /* 6. Code export parity                                                   */
 /* ---------------------------------------------------------------------- */
 
@@ -283,17 +499,29 @@ const representative = (preset) =>
   assets.find((a) => preset.suggestedFor?.includes(a.id) && a.resourceType === preset.resourceType) ??
   assets.find((a) => a.resourceType === preset.resourceType && a.collection === 'field');
 
-// Every step kind, with non-default parameters, on an asset it applies to.
-const everyStep = pipeline.STEP_ORDER.map((kind) => {
+/**
+ * Prompts for the generative steps, whose defaults are empty (the Studio suggests an object from the
+ * asset itself). Parity is checked with a real prompt as well as with the empty default.
+ */
+const EXAMPLE_PARAMS = {
+  gen_background_replace: { prompt: 'clean concrete depot floor in soft overcast daylight' },
+  gen_replace: { from: 'mop', to: 'yellow wet floor warning sign' },
+  gen_recolor: { prompt: 'hard hat', color: 'FF6A00' },
+  gen_remove: { prompt: 'mop bucket' },
+};
+
+// Every step kind on an asset it applies to: its defaults, and example prompts where defaults are empty.
+const everyStep = pipeline.STEP_ORDER.flatMap((kind) => {
   const def = pipeline.STEP_DEFINITIONS[kind];
   const asset = assets.find((a) => def.appliesTo.includes(a.resourceType) && a.collection === 'field');
-  return { name: `step:${kind}`, asset, steps: [pipeline.createStep(kind)] };
+  const cases = [{ name: `step:${kind}`, asset, steps: [pipeline.createStep(kind)] }];
+  if (EXAMPLE_PARAMS[kind]) cases.push({ name: `step:${kind} (prompt)`, asset, steps: [pipeline.createStep(kind, EXAMPLE_PARAMS[kind])] });
+  return cases;
 });
-const presetCases = pipeline.PRESETS.map((preset) => ({
-  name: `preset:${preset.id}`,
-  asset: representative(preset),
-  steps: pipeline.presetSteps(preset),
-}));
+const presetCases = pipeline.PRESETS.map((preset) => {
+  const asset = representative(preset);
+  return { name: `preset:${preset.id}`, asset, steps: pipeline.presetSteps(preset, asset) };
+});
 
 for (const { name, asset, steps } of [...everyStep, ...presetCases]) {
   const expected = pipeline.pipelineComponents(steps, asset).map(normalizeComponent);
@@ -348,7 +576,7 @@ if (!quick) {
   console.log('\nPresets — rendered live on Cloudinary (generative steps can take ~10 s on first render)');
   for (const preset of pipeline.PRESETS) {
     const asset = representative(preset);
-    const url = pipeline.pipelineUrl(pipeline.presetSteps(preset), asset);
+    const url = pipeline.pipelineUrl(pipeline.presetSteps(preset, asset), asset);
     const res = await probe(url, asset.resourceType === 'image' ? IMAGE_ACCEPT : undefined, { pollFor423: 90_000 });
     record('presets', `${preset.id} on ${asset.id}`, res.kind === 'ready' || res.kind === 'processing', describe(res));
   }

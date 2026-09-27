@@ -245,9 +245,17 @@ export const GROUPS_LOW = groupTiles(TILES_LOW);
  */
 export const EVIDENCE_SRC = evidenceStillUrl(HERO, true, 900);
 
+/**
+ * The fixed SAMPLE report payload the story's SHA-256 is computed over — labelled "sample report payload" on
+ * the sheet. It is not a console export (that is `visualops.report/v3`, built by lib/report): it lists the
+ * search result's sample annotations and, as the one evidence frame, exactly the URL the sheet displays
+ * (callers pass the same `EVIDENCE_SRC` to the sheet and to the hash). No report runs on the landing page, so
+ * it carries no delivery results.
+ */
 export function reportJson(evidenceUrl: string): string {
   return JSON.stringify({
-    schema: 'visualops.report/v2',
+    schema: 'visualops.sample-report/v1',
+    sample: 'Sample report payload for the landing story. Findings are sample annotations written by the VisualOps team.',
     kind: 'inspection',
     query: STORY_QUERY,
     findings: QUERY_RESULT.hits.map(({ asset }) => ({
@@ -259,6 +267,7 @@ export function reportJson(evidenceUrl: string): string {
       site: asset.site,
       zone: asset.zone,
       file: asset.fileName,
+      provenance: 'human · sample annotation',
       evidence: asset.id === HERO.id ? evidenceUrl : undefined,
     })),
   });

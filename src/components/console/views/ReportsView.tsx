@@ -60,7 +60,7 @@ export const ReportsView = memo(function ReportsView() {
       if (!report || stale) return;
       const base = exportBase(report.model.kind, report.model.generatedAt);
       if (format === 'print') window.print();
-      else if (format === 'md') downloadText(`${base}.md`, toMarkdown(report.payload, report.hash), 'text/markdown');
+      else if (format === 'md') downloadText(`${base}.md`, toMarkdown(report.payload, report.hash, `${base}.json`), 'text/markdown');
       else if (format === 'json') downloadText(`${base}.json`, report.json, 'application/json');
       else downloadText(`${base}.csv`, toCsv(report.payload), 'text/csv');
     },
@@ -81,7 +81,7 @@ export const ReportsView = memo(function ReportsView() {
     <div className="space-y-5">
       <ViewHeader
         title="Reports"
-        subtitle={`Evidence packages compiled from the structured records — every frame rendered and stamped by Cloudinary${
+        subtitle={`Evidence packages compiled from the structured records — human classification, Cloudinary AI understanding, and every frame rendered and stamped by Cloudinary${
           reportScope.redactFaces ? '; faces it detects are pixelated' : ''
         }`}
       />
@@ -285,17 +285,17 @@ function ToggleChip({ active, onClick, children }: { active: boolean; onClick: (
 /** Before the first run: the anatomy of the document the chosen template will issue. */
 function Blueprint({ kind }: { kind: ReportKind }) {
   const sections: Record<ReportKind, string> = {
-    inspection: 'Findings — observation, required action and a stamped evidence frame each',
+    inspection: 'Findings — human classification, Cloudinary AI understanding, required action and a stamped evidence frame each',
     incident: 'Incident register — open and monitoring, worst first, with age',
-    media: 'Media and delivery — original vs delivered bytes, measured from Cloudinary',
-    asset: 'Asset inventory — what exists, where, and of what type',
+    media: 'Media and delivery — original vs delivered bytes measured from Cloudinary, face detections and AI-detected objects',
+    asset: 'Asset inventory — what exists, where, of what type, and what Cloudinary AI detected in it',
   };
   const rows = [
-    ['Cover', 'Title, scope, filters, redaction and document ID'],
+    ['Cover', 'Title, scope, filters, redaction, AI coverage, document ID and the provenance legend (human · AI · system)'],
     ['01', kind === 'media' || kind === 'asset' ? 'Summary — media counts and sizes' : 'Summary — findings by severity and by site'],
     ['02', sections[kind]],
     ['03', 'Evidence manifest — every frame requested from Cloudinary, with its HTTP status and face redaction'],
-    ['04', 'Integrity — SHA-256 of the JSON export'],
+    ['04', 'Integrity — SHA-256 of the JSON export: records + evidence URLs + delivery results'],
   ];
   return (
     <section aria-label="Document outline" className="survey-grid rounded-[10px] border border-dashed border-line-strong px-5 py-6 sm:px-8 sm:py-8">
@@ -310,7 +310,8 @@ function Blueprint({ kind }: { kind: ReportKind }) {
       </ol>
       <p className="mt-5 max-w-[56ch] text-[12.5px] leading-relaxed text-ink-3">
         Generate the report to compile it: the sequence scopes the media, builds the records, requests every evidence frame from Cloudinary
-        (recording whether it was delivered and which faces Cloudinary detected) and seals the package with a SHA-256 fingerprint.
+        (recording whether it was delivered and which faces Cloudinary detected) and seals the package with a SHA-256 fingerprint of the
+        exported JSON — the records, their Cloudinary AI understanding, the evidence URLs and their delivery results.
       </p>
     </section>
   );

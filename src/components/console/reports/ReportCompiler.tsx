@@ -18,7 +18,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SEVERITIES } from '@/lib/analytics';
 import { formatBytes, formatDateTime, pluralize } from '@/lib/format';
-import { REPORT_KINDS, type ReportKind, type ReportModel } from '@/lib/report';
+import { REPORT_KINDS, hashVerifyCommand, type ReportKind, type ReportModel } from '@/lib/report';
 import { SEVERITY_COLOR } from '@/components/ui/badges';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { cn } from '@/components/ui/cn';
@@ -33,7 +33,7 @@ import {
   type StageId,
   type StageStatus,
 } from './job';
-import { documentId, formatWork, groupHash } from './format';
+import { documentId, exportBase, formatWork, groupHash } from './format';
 
 export type ExportFormat = 'print' | 'md' | 'json' | 'csv';
 
@@ -59,7 +59,7 @@ function announcement(job: JobState, stale: boolean): string {
       : `Stage ${started + 1} of ${STAGES.length}: ${STAGES[started].name}`;
   }
   if (run.phase === 'failed' || !report || report.runId !== run.id) return '';
-  if (stale) return 'Scope changed — the report shown is superseded. Regenerate to update it.';
+  if (stale) return 'Scope or records changed — the report shown is superseded. Regenerate to update it.';
   const frames = report.evidence.length;
   const delivered = report.evidence.filter((e) => e.state === 'delivered').length;
   return (
@@ -241,6 +241,12 @@ function StageList({ run, preview, kind }: { run: ReportRun | null; preview: Rep
                   <p>
                     <b className="num font-medium text-ink">{analyze.findings}</b> {analyze.findings === 1 ? 'finding' : 'findings'} ·{' '}
                     {analyze.open} open · {analyze.monitoring} monitoring
+                    {analyze.findings > 0 && (
+                      <>
+                        {' '}
+                        · <span className="num">{analyze.ai}</span> with Cloudinary AI understanding
+                      </>
+                    )}
                   </p>
                   <p className="flex flex-wrap gap-x-3 font-mono text-[11px] text-ink-3">
                     {SEVERITIES.map((s) => (
@@ -277,7 +283,10 @@ function StageList({ run, preview, kind }: { run: ReportRun | null; preview: Rep
                   {pkg.schema} · {formatBytes(pkg.jsonBytes)} JSON · SHA-256 <span className="text-ink">{pkg.hash.slice(0, 16)}…</span>
                 </p>
               ) : (
-                <p>Canonical JSON payload and its SHA-256 fingerprint, computed in this browser</p>
+                <p>
+                  Canonical JSON payload — records with provenance, Cloudinary AI understanding, evidence URLs and their delivery results — and its
+                  SHA-256, computed in this browser
+                </p>
               ))}
           </StageRow>
         );
@@ -562,7 +571,7 @@ function Receipt({
         >
           {stale ? (
             <>
-              <AlertTriangle aria-hidden className="h-3.5 w-3.5" /> Scope changed — regenerate
+              <AlertTriangle aria-hidden className="h-3.5 w-3.5" /> Changed — regenerate
             </>
           ) : (
             <>
@@ -573,7 +582,8 @@ function Receipt({
         <p className="min-w-0 flex-1 basis-[260px] text-[12.5px] leading-snug text-ink-2">
           {stale ? (
             <>
-              The document below was built for the previous template or scope. Its hash and exports no longer describe the current selection
+              The document below was built for a previous template, scope or record state (e.g. a new Cloudinary AI analysis). Its hash and
+              exports no longer describe the current selection
               {' '}({kindName(preview.kind)} · {preview.scopeLabel}).
             </>
           ) : (
@@ -612,6 +622,10 @@ function Receipt({
             )}
           >
             {groupHash(report.hash)}
+          </p>
+          <p className="mt-1 text-[11.5px] leading-snug text-ink-3">
+            Covers the exported JSON: records + evidence URLs + delivery results. Recompute with{' '}
+            <code className="font-mono text-[11px] text-ink-2">{hashVerifyCommand(`${exportBase(report.model.kind, report.model.generatedAt)}.json`)}</code>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

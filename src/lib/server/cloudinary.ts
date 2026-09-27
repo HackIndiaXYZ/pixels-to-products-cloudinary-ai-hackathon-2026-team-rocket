@@ -1,5 +1,6 @@
 import 'server-only';
 import { v2 as cloudinary } from 'cloudinary';
+import { CONTEXT_CATEGORIES, CONTEXT_SEVERITIES, encodeContext } from '@/lib/cloudinary/ingest-fields';
 
 /**
  * Server-side Cloudinary configuration. The API secret is read from the server
@@ -99,4 +100,114 @@ export function cloudinaryErrorMessage(error: unknown): { message: string; statu
   const message = e?.error?.message ?? e?.message ?? 'Cloudinary request failed';
   const status = e?.error?.http_code ?? e?.http_code ?? 502;
   return { message: message.replace(/api_secret[^,;\s]*/gi, '[redacted]'), status: status >= 400 && status < 600 ? status : 502 };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Structured metadata                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The structured metadata fields VisualOps writes when they exist on the cloud. They are created by
+ * `npm run setup:cloudinary` (scripts/lib/cloudinary-admin.mjs holds the same definitions — keep the two
+ * in sync). Enum values are datasource entries whose external_id is the value itself.
+ */
+export const STRUCTURED_METADATA_FIELDS = [
+  { externalId: 'vo_category', type: 'enum', values: CONTEXT_CATEGORIES as readonly string[] },
+  { externalId: 'vo_severity', type: 'enum', values: CONTEXT_SEVERITIES as readonly string[] },
+  { externalId: 'vo_status', type: 'enum', values: ['open', 'monitoring', 'resolved'] as readonly string[] },
+  { externalId: 'vo_site', type: 'string', values: [] as readonly string[] },
+] as const;
+
+/** Longest site the vo_site field accepts (matches the ingest `site` limit and the field's strlen validation). */
+export const STRUCTURED_SITE_MAX = 60;
+
+interface ListedMetadataField {
+  external_id?: string;
+  type?: string;
+  datasource?: { values?: { external_id?: string; state?: string }[] };
+}
+
+/** True when every VisualOps field exists with the expected type and, for enums, every value is an active entry. */
+export function structuredMetadataComplete(fields: readonly ListedMetadataField[] | undefined): boolean {
+  if (!Array.isArray(fields)) return false;
+  return STRUCTURED_METADATA_FIELDS.every((expected) => {
+    const field = fields.find((f) => f?.external_id === expected.externalId);
+    if (!field || field.type !== expected.type) return false;
+    if (expected.type !== 'enum') return true;
+    const entries: { external_id?: string; state?: string }[] = Array.isArray(field.datasource?.values) ? field.datasource.values : [];
+    const active = new Set(entries.filter((v) => v?.state !== 'inactive').map((v) => v?.external_id));
+    return expected.values.every((value) => active.has(value));
+  });
+}
+
+const READY_TTL_MS = 5 * 60 * 1000;
+/** A missing field or a failed lookup is re-checked sooner, so running the setup script is picked up quickly. */
+const NOT_READY_TTL_MS = 60 * 1000;
+const LOOKUP_TIMEOUT_MS = 4000;
+
+let readyCache: { key: string; ready: boolean; expires: number } | null = null;
+let readyLookup: { key: string; promise: Promise<boolean> } | null = null;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timed out')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Whether the cloud has the VisualOps structured metadata fields (vo_category, vo_severity, vo_status,
+ * vo_site). Lists the fields with the Admin API and caches the answer per server instance (5 minutes when
+ * ready, 1 minute otherwise). Never throws: any failure (network, permissions, timeout) answers false, so
+ * uploads simply go without structured metadata.
+ */
+export function metadataFieldsReady(config: ServerCloudinaryConfig): Promise<boolean> {
+  const key = `${config.cloudName}:${config.apiKey}`;
+  if (readyCache && readyCache.key === key && readyCache.expires > Date.now()) return Promise.resolve(readyCache.ready);
+  if (readyLookup && readyLookup.key === key) return readyLookup.promise;
+
+  const promise = (async () => {
+    let ready = false;
+    try {
+      const result = (await withTimeout(cloudinaryFor(config).api.list_metadata_fields(), LOOKUP_TIMEOUT_MS)) as {
+        metadata_fields?: ListedMetadataField[];
+      };
+      ready = structuredMetadataComplete(result?.metadata_fields);
+    } catch {
+      ready = false;
+    }
+    readyCache = { key, ready, expires: Date.now() + (ready ? READY_TTL_MS : NOT_READY_TTL_MS) };
+    if (readyLookup?.key === key) readyLookup = null;
+    return ready;
+  })();
+  readyLookup = { key, promise };
+  return promise;
+}
+
+const CONTROL_CHARS = /[\u0000-\u001F\u007F]/g;
+
+/**
+ * The signed `metadata` upload parameter ("vo_category=…|vo_severity=…|vo_status=…|vo_site=…"), built only
+ * from validated values: enums must be known values, the site is stripped of control characters, trimmed
+ * and length-limited, and `=` / `|` are escaped as Cloudinary documents. Missing or invalid values are
+ * omitted; returns undefined when nothing is left.
+ */
+export function structuredMetadataParam(fields: {
+  category?: string;
+  severity?: string;
+  status?: string;
+  site?: string;
+}): string | undefined {
+  const [category, severity, status] = STRUCTURED_METADATA_FIELDS;
+  const pick = (value: string | undefined, allowed: readonly string[]) =>
+    value && allowed.includes(value) ? value : undefined;
+  const site = fields.site?.replace(CONTROL_CHARS, ' ').replace(/\s+/g, ' ').trim().slice(0, STRUCTURED_SITE_MAX).trim();
+  const encoded = encodeContext({
+    vo_category: pick(fields.category, category.values),
+    vo_severity: pick(fields.severity, severity.values),
+    vo_status: pick(fields.status, status.values),
+    vo_site: site || undefined,
+  });
+  return encoded || undefined;
 }

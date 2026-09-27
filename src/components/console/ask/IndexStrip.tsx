@@ -150,7 +150,7 @@ export const IndexStrip = memo(function IndexStrip({
               animate={{ x: '0%' }}
               transition={{ duration: (STAGE_MS / 1000) * 0.95, ease: [0.65, 0, 0.35, 1] }}
             >
-              <span className="absolute inset-y-0 right-0 w-20 bg-linear-to-l from-[color-mix(in_oklab,var(--color-signal)_16%,transparent)] to-transparent" />
+              <span className="absolute inset-y-0 right-0 w-20 bg-[color-mix(in_oklab,var(--color-signal)_8%,transparent)]" />
               <span className="absolute inset-y-0 right-0 w-px bg-signal" />
             </motion.span>
           )}

@@ -1,4 +1,4 @@
-import type { MediaAsset } from '@/lib/types';
+import type { AiUnderstanding, MediaAsset, Region } from '@/lib/types';
 import { displayUrl, evidenceUrl, playbackUrl, redactedUrl } from '@/lib/cloudinary/media';
 import { IMAGE_ACCEPT, measure } from '@/lib/cloudinary/probe';
 import { encodePublicId } from '@/lib/cloudinary/url';
@@ -46,6 +46,48 @@ export function underlayUrl(asset: MediaAsset): string {
 
 export function posterUrl(asset: MediaAsset): string {
   return displayUrl(asset, 1280);
+}
+
+/** Most AI object boxes drawn on the stage at once (strongest first), so labels stay legible. */
+export const AI_BOX_LIMIT = 8;
+
+/**
+ * Cloudinary AI object detections (coco_v2) as stage regions, strongest first, each labelled with the
+ * object and Cloudinary's confidence. Boxes are percent of the original frame, like every other region.
+ */
+export function aiObjectRegions(ai: AiUnderstanding | undefined, limit = AI_BOX_LIMIT): Region[] {
+  if (!ai) return [];
+  const regions: Region[] = [];
+  for (const o of ai.objects) {
+    if (!o.box || o.box.w <= 0 || o.box.h <= 0) continue;
+    regions.push({ x: o.box.x, y: o.box.y, w: o.box.w, h: o.box.h, label: `${o.label.toUpperCase()} ${Math.round(o.confidence * 100)}%` });
+    if (regions.length >= limit) break;
+  }
+  return regions;
+}
+
+export interface AiObjectGroup {
+  label: string;
+  count: number;
+  /** Highest confidence among the detections with this label (0–1). */
+  confidence: number;
+}
+
+/** Detected objects grouped by label ("truck ×3 · 77%"), strongest first. */
+export function aiObjectGroups(ai: AiUnderstanding | undefined): AiObjectGroup[] {
+  if (!ai) return [];
+  const byLabel = new Map<string, AiObjectGroup>();
+  for (const o of ai.objects) {
+    const key = o.label.toLowerCase();
+    const group = byLabel.get(key);
+    if (group) {
+      group.count += 1;
+      group.confidence = Math.max(group.confidence, o.confidence);
+    } else {
+      byLabel.set(key, { label: o.label, count: 1, confidence: o.confidence });
+    }
+  }
+  return Array.from(byLabel.values()).sort((a, b) => b.confidence - a.confidence || b.count - a.count);
 }
 
 const prefetched = new Set<string>();

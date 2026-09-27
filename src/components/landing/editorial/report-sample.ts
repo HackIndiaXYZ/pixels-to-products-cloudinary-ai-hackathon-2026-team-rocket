@@ -1,4 +1,4 @@
-import { DEFAULT_SCOPE, buildReport, evidenceStillUrl } from '@/lib/report';
+import { DEFAULT_SCOPE, REPORT_EVIDENCE_WIDTH, buildReport, evidenceStillUrl, reportPayload } from '@/lib/report';
 import { LANDING_ASSETS, landingAsset } from '../landing-data';
 
 /**
@@ -9,8 +9,8 @@ import { LANDING_ASSETS, landingAsset } from '../landing-data';
  */
 export const REPORT_ASSET = landingAsset('vo-crew-ppe');
 
-/** Width of the evidence frame rendition on the paper. */
-export const REPORT_FRAME_WIDTH = 900;
+/** Width of the evidence frame rendition on the paper — the width the console's reports render and export. */
+export const REPORT_FRAME_WIDTH = REPORT_EVIDENCE_WIDTH;
 
 /**
  * The evidence frame exactly as a report builds it: exposure correction, face
@@ -29,3 +29,19 @@ export const REPORT_MODEL = buildReport(
   { ...DEFAULT_SCOPE, assetIds: [REPORT_ASSET.id], redactFaces: true },
   REPORT_CLOCK,
 );
+
+/**
+ * The sample report payload the paper's SHA-256 is computed over: the console's own export builder, fixed
+ * clock, sample annotation — and, as its evidence, exactly the frame URL the paper displays. The landing does
+ * not run a report, so the payload records the frame as not requested (no delivery result, no face count)
+ * instead of inventing one.
+ */
+export const REPORT_PAYLOAD = reportPayload(REPORT_MODEL, {
+  evidence: Object.fromEntries(
+    REPORT_MODEL.records.filter((r) => r.asset.id === REPORT_ASSET.id).map((r) => [r.finding.id, { url: REPORT_FRAME_URL }]),
+  ),
+  fileName: 'visualops-sample-report.json',
+});
+
+/** The exact text that is hashed. */
+export const REPORT_PAYLOAD_JSON = JSON.stringify(REPORT_PAYLOAD, null, 2);

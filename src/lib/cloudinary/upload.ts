@@ -1,6 +1,8 @@
-import type { Category, MediaAsset, ResourceType, Severity } from '@/lib/types';
+import type { AiUnderstanding, AssetSource, Category, FindingStatus, MediaAsset, Region, ResourceType, Severity } from '@/lib/types';
+import { decodeAiContext } from './ai';
 import type { CloudResource, UploadSignature } from './backend';
 import { derivedFindingId, encodeContext } from './ingest-fields';
+import { CTX } from './record-context';
 
 export { encodeContext } from './ingest-fields';
 
@@ -148,17 +150,71 @@ export async function listByTag(cloudName: string, tag: string, resourceType: Re
   return data.resources ?? [];
 }
 
+
+// ---- record mapping (the context contract in ./record-context) ----------------
+
 const CATEGORIES: Category[] = ['structural', 'safety', 'equipment', 'electrical', 'facilities', 'inventory'];
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low'];
+const STATUSES: FindingStatus[] = ['open', 'monitoring', 'resolved'];
+const HOUR = 3_600_000;
+/** The collection tag when the caller does not name the server's. */
+const DEFAULT_TAG = 'visualops';
 
-function toCategory(value: string | undefined): Category {
-  return CATEGORIES.includes(value as Category) ? (value as Category) : 'facilities';
+function isCategory(value: string | undefined): value is Category {
+  return CATEGORIES.includes(value as Category);
 }
 
 function toSeverity(value: string | undefined): Severity | undefined {
   return SEVERITIES.includes(value as Severity) ? (value as Severity) : undefined;
 }
 
+function toStatus(value: string | undefined): FindingStatus {
+  return STATUSES.includes(value as FindingStatus) ? (value as FindingStatus) : 'open';
+}
+
+const clampPct = (n: number) => Math.max(0, Math.min(100, n));
+
+/** `region` context value — "x,y,w,h" in percent of the frame, optionally ",LABEL" — as a Region. */
+export function parseRegion(value: string | undefined): Region | undefined {
+  if (!value) return undefined;
+  const [xs, ys, ws, hs, ...rest] = value.split(',');
+  const nums = [xs, ys, ws, hs].map((s) => (s === undefined || s.trim() === '' ? NaN : Number(s)));
+  if (!nums.every((n) => Number.isFinite(n))) return undefined;
+  const x = clampPct(nums[0]);
+  const y = clampPct(nums[1]);
+  const w = Math.min(clampPct(nums[2]), 100 - x);
+  const h = Math.min(clampPct(nums[3]), 100 - y);
+  if (w <= 0 || h <= 0) return undefined;
+  const label = rest.join(',').trim();
+  return label ? { x, y, w, h, label } : { x, y, w, h };
+}
+
+/** When the capture happened, and how that time is known (see CaptureBasis). */
+function captureOf(
+  ctx: Record<string, string>,
+  createdAt: string | undefined,
+  now: number,
+): Pick<MediaAsset, 'capturedAt' | 'captureBasis' | 'cameraTime'> {
+  const hoursAgo = ctx[CTX.sampleHoursAgo]?.trim() ? Number(ctx[CTX.sampleHoursAgo]) : NaN;
+  if (Number.isFinite(hoursAgo) && hoursAgo >= 0) {
+    // Sample workspace: an offset materialised against the viewer's clock, labelled as sample time.
+    return { capturedAt: new Date(now - hoursAgo * HOUR).toISOString(), captureBasis: 'sample-relative' };
+  }
+  const fixed = ctx[CTX.capturedAt] ? Date.parse(ctx[CTX.capturedAt]) : NaN;
+  if (Number.isFinite(fixed)) {
+    const cameraTime = ctx[CTX.cameraTime]?.trim();
+    return { capturedAt: new Date(fixed).toISOString(), captureBasis: 'fixed', ...(cameraTime ? { cameraTime } : {}) };
+  }
+  // Neither: the time Cloudinary recorded for the upload.
+  return { capturedAt: createdAt ?? new Date(now).toISOString(), captureBasis: 'recorded' };
+}
+
+/** "Captured by" when the record does not say (captured_by): who brought the media in, never an invented person. */
+const CAPTURED_BY: Record<AssetSource, string> = {
+  sample: 'Not recorded · sample workspace',
+  upload: 'Uploaded in VisualOps',
+  sync: 'Synced from Cloudinary',
+};
 
 interface AssetInput {
   cloudName: string;
@@ -173,17 +229,45 @@ interface AssetInput {
   fileName?: string;
   tags?: string[];
   context?: Record<string, string>;
+  /** Where the response came from. The record's `provenance` context key, when present, decides instead. */
   source: 'upload' | 'sync';
+  /** The VisualOps collection tag, kept off the record's tags (default "visualops"). */
+  tag?: string;
+  /** The clock sample-relative capture times are materialised against (default: now). */
+  now?: number;
 }
 
-/** Maps an upload or list response (plus its Cloudinary context) onto a VisualOps record. */
+/**
+ * Maps an upload, Search or list response (plus its Cloudinary contextual metadata) onto a
+ * VisualOps record, reading the full context contract (lib/cloudinary/record-context):
+ *  - provenance "sample-annotation" → source `sample` (team-written sample workspace), "ingest" → `upload`
+ *  - title, site, zone, category, severity, status, note, action, finding_id, region → the finding
+ *  - captured_by, file_name, poster_offset → the record
+ *  - sample_hours_ago | captured_at (+ camera_time) | Cloudinary's created_at → the capture time
+ *  - ai_* → `ai` (Cloudinary AI understanding)
+ * The record's tags are the asset's human tags: its Cloudinary tags minus the VisualOps tag and minus
+ * the tags Cloudinary's auto-tagging added (those live in `ai.tags`, labelled AI detected).
+ */
 export function toMediaAsset(input: AssetInput): MediaAsset {
   const ctx = input.context ?? {};
-  const severity = toSeverity(ctx.severity);
-  const category = toCategory(ctx.category);
-  const title = ctx.title || input.fileName || input.publicId.split('/').pop() || 'Untitled capture';
+  const provenance = ctx[CTX.provenance];
+  const source: AssetSource = provenance === 'sample-annotation' ? 'sample' : provenance === 'ingest' ? 'upload' : input.source;
+  const severity = toSeverity(ctx[CTX.severity]);
+  const rawCategory = ctx[CTX.category];
+  const category: Category = isCategory(rawCategory) ? rawCategory : 'facilities';
+  const lastSegment = input.publicId.split('/').pop() || input.publicId;
+  const fileName = ctx[CTX.fileName]?.trim() || `${input.fileName || lastSegment}.${input.format}`;
+  const title = ctx[CTX.title] || input.fileName || lastSegment || 'Untitled capture';
+  const isVideo = input.resourceType === 'video';
+  const posterOffset = Number(ctx[CTX.posterOffset]);
+  const ai = decodeAiContext(ctx);
+  const tag = input.tag ?? DEFAULT_TAG;
+  const aiTags = new Set(ai?.tags ?? []);
+  const humanTags = (input.tags ?? []).filter((t) => t !== tag && !aiTags.has(t));
+  const region = parseRegion(ctx[CTX.region]);
+
   return {
-    id: `${input.source}-${input.cloudName}-${input.publicId}`,
+    id: `${source}-${input.cloudName}-${input.publicId}`,
     cloudName: input.cloudName,
     publicId: input.publicId,
     resourceType: input.resourceType,
@@ -192,31 +276,38 @@ export function toMediaAsset(input: AssetInput): MediaAsset {
     height: input.height ?? 900,
     bytes: input.bytes,
     duration: input.duration,
-    posterOffset: input.resourceType === 'video' ? 1 : undefined,
-    fileName: input.fileName ? `${input.fileName}.${input.format}` : `${input.publicId.split('/').pop()}.${input.format}`,
+    posterOffset: isVideo ? (ctx[CTX.posterOffset] && Number.isFinite(posterOffset) && posterOffset >= 0 ? posterOffset : 1) : undefined,
+    fileName,
     title,
-    site: ctx.site || 'Unassigned',
-    capturedAt: input.createdAt ?? new Date().toISOString(),
-    capturedBy: input.source === 'upload' ? 'Uploaded in VisualOps' : 'Synced from Cloudinary',
-    tags: Array.from(new Set([...(input.tags ?? []), ...(ctx.category ? [category] : [])])).filter((t) => t !== 'visualops'),
-    source: input.source,
+    site: ctx[CTX.site] || 'Unassigned',
+    ...(ctx[CTX.zone] ? { zone: ctx[CTX.zone] } : {}),
+    ...captureOf(ctx, input.createdAt, input.now ?? Date.now()),
+    capturedBy: ctx[CTX.capturedBy]?.trim() || CAPTURED_BY[source],
+    tags: Array.from(new Set([...humanTags, ...(isCategory(rawCategory) ? [category] : [])])),
+    source,
+    collection: 'field',
     finding: severity
       ? {
           // Stable across reloads and devices: written at ingest, otherwise derived from the asset.
-          id: ctx.finding_id || derivedFindingId(input.cloudName, input.publicId),
-          title,
+          id: ctx[CTX.findingId] || derivedFindingId(input.cloudName, input.publicId),
+          title: ctx[CTX.findingTitle] || title,
           category,
           severity,
-          status: 'open',
-          summary: ctx.note || 'Reported at ingest. Review the media and refine the record.',
-          action: 'Assign an owner and schedule a follow-up inspection.',
+          status: toStatus(ctx[CTX.status]),
+          summary: ctx[CTX.note] || 'Reported at ingest. Review the media and refine the record.',
+          action: ctx[CTX.action] || 'No action recorded yet. Assign an owner and review the media.',
+          ...(region ? { region } : {}),
         }
       : undefined,
+    ...(ai ? { ai } : {}),
   };
 }
 
-/** Maps a record read back from the team's cloud (GET /api/assets) onto a VisualOps record. */
-export function cloudResourceToAsset(cloudName: string, r: CloudResource): MediaAsset {
+/**
+ * Maps a record read back from the team's cloud (GET /api/assets, Search API) onto a VisualOps record.
+ * Pass the server's collection `tag` (CloudAssetsPage.tag) and the console's `now` when available.
+ */
+export function cloudResourceToAsset(cloudName: string, r: CloudResource, options: { tag?: string; now?: number } = {}): MediaAsset {
   return toMediaAsset({
     cloudName,
     publicId: r.public_id,
@@ -230,7 +321,22 @@ export function cloudResourceToAsset(cloudName: string, r: CloudResource): Media
     fileName: r.display_name,
     tags: r.tags,
     context: r.context,
-    // Records created by VisualOps' own ingest carry context source=visualops; anything else was tagged elsewhere.
-    source: r.context.source === 'visualops' ? 'upload' : 'sync',
+    // Records created by VisualOps carry context source=visualops (and a provenance); anything else was tagged elsewhere.
+    source: r.context[CTX.source] === 'visualops' ? 'upload' : 'sync',
+    tag: options.tag,
+    now: options.now,
   });
+}
+
+/**
+ * The same record after Cloudinary AI understood it (POST /api/assets/[id]/analyze): `ai` set, and the
+ * tags auto-tagging added kept apart from the human tags. `tags` is the asset's full tag list from the response.
+ */
+export function withAiUnderstanding(asset: MediaAsset, ai: AiUnderstanding, tags?: string[], collectionTag = DEFAULT_TAG): MediaAsset {
+  const aiTags = new Set(ai.tags);
+  const base = tags ?? asset.tags;
+  const human = base.filter((t) => t !== collectionTag && !aiTags.has(t));
+  const category = asset.finding?.category;
+  const humanTags = Array.from(new Set([...human, ...(category && asset.tags.includes(category) ? [category] : [])]));
+  return { ...asset, ai, tags: humanTags };
 }

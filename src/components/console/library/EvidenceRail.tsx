@@ -1,24 +1,37 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Download, ExternalLink, FileText, ScanFace, ShieldCheck, Trash2, TriangleAlert, Wand2 } from 'lucide-react';
-import { Fragment, type ReactNode } from 'react';
-import type { AssetSource, FindingStatus, MediaAsset } from '@/lib/types';
+import { Download, ExternalLink, FileText, Loader2, ScanFace, ShieldCheck, Sparkles, Trash2, TriangleAlert, Wand2 } from 'lucide-react';
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import type { AiUnderstanding, AssetSource, FindingStatus, MediaAsset } from '@/lib/types';
 import { CROP_LABEL, describeCropCentre, type CloudinaryInsight } from '@/lib/cloudinary/insights';
 import type { ProbeResult } from '@/lib/cloudinary/probe';
 import { CATEGORY_LABEL, captureBasisOf } from '@/lib/analytics';
+import { analyzeAsset, untagAsset } from '@/lib/cloudinary/backend';
 import { downloadOriginalUrl, originalUrl } from '@/lib/cloudinary/media';
 import { PRESETS, presetSteps } from '@/lib/cloudinary/pipeline';
+import { withAiUnderstanding } from '@/lib/cloudinary/upload';
 import { formatBytes, formatDateTime, formatDuration, relativeTime } from '@/lib/format';
 import { CloudImage } from '@/components/media/CloudImage';
 import { DeliveryReceipt } from '@/components/media/DeliveryReceipt';
 import { IntegrityBadge, LiveDot, SEVERITY_COLOR, SeverityDot, StatusBadge } from '@/components/ui/badges';
 import { CopyButton } from '@/components/ui/CopyButton';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { cn } from '@/components/ui/cn';
-import { provenanceLabel } from '../incidents/model';
-import { useConsoleActions, useConsoleData } from '../store';
+import { applyRecordRemoval, applyRecordUpdate, isTeamCloudRecord } from '../cloud-records';
+import { humanProvenanceDetail } from '../incidents/model';
+import { useConsoleActions, useConsoleData, type ConsoleData } from '../store';
 import { recordsPeople } from './model';
-import { VIEW_INFO, describeComponent, renditionComponents, renditionExtension, underlayUrl, type StillView } from './renditions';
+import {
+  VIEW_INFO,
+  aiObjectGroups,
+  aiObjectRegions,
+  describeComponent,
+  renditionComponents,
+  renditionExtension,
+  underlayUrl,
+  type StillView,
+} from './renditions';
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -34,12 +47,28 @@ const SOURCE_NOTE: Record<AssetSource, string> = {
   sync: 'Synced from a Cloudinary tag',
 };
 
-/** Who wrote the record tags. None of them are detected by Cloudinary. */
+/** Records read from the team's cloud (Search API): the same sources, stored in Cloudinary rather than this browser. */
+const TEAM_SOURCE_NOTE: Record<AssetSource, string> = {
+  sample: 'Sample workspace · stored in your Cloudinary cloud',
+  upload: 'Entered at ingest · stored in your Cloudinary cloud',
+  sync: 'Tagged in your Cloudinary cloud',
+};
+
+/** Who wrote the record tags. None of them are detected by Cloudinary (auto-tags are listed under Cloudinary AI). */
 const TAG_SOURCE: Record<AssetSource, string> = {
-  sample: 'Sample annotation',
-  upload: 'Entered at ingest',
+  sample: 'sample annotation',
+  upload: 'entered at ingest',
   sync: 'Cloudinary asset tags',
 };
+
+/** Keeps the latest console data in a ref, for work that finishes after the render that started it. */
+function useLatest(data: ConsoleData) {
+  const ref = useRef(data);
+  useEffect(() => {
+    ref.current = data;
+  });
+  return ref;
+}
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -55,8 +84,11 @@ function integrityNote(asset: MediaAsset, view: StillView, insight: CloudinaryIn
  * The structured evidence record beside the Inspector stage: the finding and
  * the recommended action first, then identity, place and time, the record's
  * own tags (written by people, labelled with who wrote them), what Cloudinary
- * detected live (fl_getinfo only), the exact transformation chain of the
- * rendition on screen, Cloudinary's delivery receipt, integrity and audit.
+ * AI understood (caption, objects, auto-tags — stored on the asset), what
+ * Cloudinary detects live (fl_getinfo faces and crop), the exact transformation
+ * chain of the rendition on screen, Cloudinary's delivery receipt, integrity
+ * and audit. Every block carries its provenance: AI detected, Human classified
+ * or System derived.
  */
 export function EvidenceRail({
   asset,
@@ -68,6 +100,10 @@ export function EvidenceRail({
   focusOn,
   onToggleFocus,
   onShowRedacted,
+  ai = asset.ai,
+  aiOn = false,
+  onToggleAi,
+  onAnalyzed,
   titleId,
 }: {
   asset: MediaAsset;
@@ -80,9 +116,18 @@ export function EvidenceRail({
   onToggleFocus: () => void;
   /** Switches the stage to the Faces redacted rendition (stills only). */
   onShowRedacted?: () => void;
+  /** Cloudinary AI understanding to show (the record's, or one just fetched). */
+  ai?: AiUnderstanding;
+  /** Whether the AI object boxes are drawn on the stage. */
+  aiOn?: boolean;
+  /** Shows / hides the AI object boxes on the stage (absent when there are none to draw). */
+  onToggleAi?: () => void;
+  /** Called with a fresh result after "Analyze with Cloudinary AI". */
+  onAnalyzed?: (ai: AiUnderstanding) => void;
   titleId: string;
 }) {
-  const { now } = useConsoleData();
+  const data = useConsoleData();
+  const { now, backend } = data;
   const { inspect, openInStudio, reportFor, removeUserAsset } = useConsoleActions();
   const finding = asset.finding;
   const isVideo = asset.resourceType === 'video';
@@ -93,6 +138,9 @@ export function EvidenceRail({
   const accent = finding ? SEVERITY_COLOR[finding.severity] : 'var(--color-line-strong)';
   const basis = captureBasisOf(asset);
   const noFaces = insight?.faces.length === 0;
+  const inTeamCloud = isTeamCloudRecord(asset, backend);
+  // Bundled samples on the demo cloud stay; anything in the team's cloud or only in this browser can go.
+  const removable = inTeamCloud || asset.source !== 'sample';
 
   return (
     <motion.aside
@@ -128,7 +176,7 @@ export function EvidenceRail({
 
         {/* Finding: what is wrong and what to do, before the record's metadata. */}
         {finding && (
-          <Section title="Finding" aside={provenanceLabel(asset)}>
+          <Section title="Finding" aside={<ProvenanceBadge kind="human" detail={humanProvenanceDetail(asset)} />}>
             <p className="text-[13.5px] leading-relaxed text-ink-2">{finding.summary}</p>
             <div className="mt-4 border-l-2 pl-4" style={{ borderColor: accent }}>
               <div className="label">Recommended action</div>
@@ -138,6 +186,8 @@ export function EvidenceRail({
         )}
 
         <Ledger
+          title="Record"
+          aside={<ProvenanceBadge kind="human" detail={humanProvenanceDetail(asset)} />}
           rows={[
             {
               label: 'Inspection ID',
@@ -181,11 +231,15 @@ export function EvidenceRail({
                     <span className="num block font-mono text-[11px] text-ink-3">
                       {asset.capturedAt.replace(/\.\d{3}Z$/, 'Z')} · {relativeTime(asset.capturedAt, now)}
                     </span>
+                    <span className="block text-[11.5px] text-ink-3">Upload time recorded by Cloudinary</span>
                   </>
                 ),
             },
             { label: 'Captured by', value: asset.capturedBy },
-            { label: 'Source', value: <span className="text-ink-2">{SOURCE_NOTE[asset.source]}</span> },
+            {
+              label: 'Source',
+              value: <span className="text-ink-2">{(inTeamCloud ? TEAM_SOURCE_NOTE : SOURCE_NOTE)[asset.source]}</span>,
+            },
             {
               label: 'Media',
               value: (
@@ -203,7 +257,7 @@ export function EvidenceRail({
 
         {/* Record tags: written by people, so labelled with who wrote them, never as detections. */}
         {asset.tags.length > 0 && (
-          <Section title="Record tags" aside={TAG_SOURCE[asset.source]}>
+          <Section title="Record tags" aside={<ProvenanceBadge kind="human" detail={TAG_SOURCE[asset.source]} />}>
             <ul aria-label="Record tags" className="flex flex-wrap gap-1.5">
               {asset.tags.map((t) => (
                 <li key={t} className="rounded-[5px] border border-line px-1.5 py-0.5 font-mono text-[11px] text-ink-2">
@@ -214,12 +268,18 @@ export function EvidenceRail({
           </Section>
         )}
 
+        {/* Cloudinary AI Content Analysis, stored on the asset (or the way to run it). */}
+        <AiSection asset={asset} ai={ai} aiOn={aiOn} onToggleAi={onToggleAi} onAnalyzed={onAnalyzed} inTeamCloud={inTeamCloud} />
+
         {/* Live Cloudinary signals (fl_getinfo) and nothing else. */}
         <Section
-          title="Detected by Cloudinary"
+          title="Faces & crop · Cloudinary"
           aside={
-            <span className="flex items-center gap-1.5">
-              <LiveDot /> fl_getinfo · live
+            <span className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5">
+                <LiveDot /> live
+              </span>
+              <ProvenanceBadge kind="ai" detail="fl_getinfo" />
             </span>
           }
         >
@@ -313,9 +373,10 @@ export function EvidenceRail({
           </div>
         </Section>
 
-        {/* Delivery */}
-        <div className="border-t border-line px-6 py-5">
-          <DeliveryReceipt result={delivery} label="Cloudinary delivery · measured from response headers" />
+        {/* Delivery: measured by VisualOps from Cloudinary's response headers. */}
+        <div className="relative border-t border-line px-6 py-5">
+          <ProvenanceBadge kind="system" detail="measured" className="absolute right-6 top-[18px]" />
+          <DeliveryReceipt result={delivery} label="Cloudinary delivery" className="[&>.label]:pr-48" />
         </div>
 
         {/* Integrity + audit */}
@@ -377,7 +438,7 @@ export function EvidenceRail({
             <FileText className="h-4 w-4" /> Report
           </button>
         </div>
-        {(!isVideo || asset.source !== 'sample') && (
+        {(!isVideo || removable) && (
           <div className="flex flex-wrap gap-2">
             {!isVideo && facePreset && (
               <button
@@ -394,18 +455,22 @@ export function EvidenceRail({
                 {noFaces && <span className="font-normal text-ink-3">· 0 faces detected</span>}
               </button>
             )}
-            {asset.source !== 'sample' && (
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm flex-1 text-ink-3"
-                onClick={() => {
-                  removeUserAsset(asset.id);
-                  inspect(null);
-                }}
-                title="Removes it from this browser. The asset stays in Cloudinary."
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Remove from this browser
-              </button>
+            {inTeamCloud ? (
+              <RemoveFromVisualOps asset={asset} onRemoved={() => inspect(null)} />
+            ) : (
+              asset.source !== 'sample' && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm flex-1 text-ink-3"
+                  onClick={() => {
+                    removeUserAsset(asset.id);
+                    inspect(null);
+                  }}
+                  title="Removes it from this browser. The asset stays in Cloudinary."
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Remove from this browser
+                </button>
+              )
             )}
           </div>
         )}
@@ -414,10 +479,252 @@ export function EvidenceRail({
   );
 }
 
-function Notice({ tone, children }: { tone: 'signal' | 'warn'; children: ReactNode }) {
+type AnalyzeState = { status: 'idle' } | { status: 'running' } | { status: 'error'; message: string };
+
+/**
+ * What Cloudinary AI understood about the frame (AI Content Analysis: captioning + coco object detection
+ * with auto-tagging), stored on the asset's contextual metadata by POST /api/assets/[id]/analyze. For an
+ * image in the team's cloud that has not been analysed yet, the way to run it.
+ */
+function AiSection({
+  asset,
+  ai,
+  aiOn,
+  onToggleAi,
+  onAnalyzed,
+  inTeamCloud,
+}: {
+  asset: MediaAsset;
+  ai: AiUnderstanding | undefined;
+  aiOn: boolean;
+  onToggleAi?: () => void;
+  onAnalyzed?: (ai: AiUnderstanding) => void;
+  inTeamCloud: boolean;
+}) {
+  const data = useConsoleData();
+  const latest = useLatest(data);
+  const { now, backend } = data;
+  const [state, setState] = useState<AnalyzeState>({ status: 'idle' });
+  const [warning, setWarning] = useState<string | undefined>(undefined);
+  const errorId = useId();
+  const isVideo = asset.resourceType === 'video';
+
+  const analyze = async () => {
+    setState({ status: 'running' });
+    setWarning(undefined);
+    try {
+      const result = await analyzeAsset(asset.publicId, 'image');
+      onAnalyzed?.(result.ai);
+      setWarning(result.warning);
+      // The record in place: Cloudinary now holds ai_* in the asset's context, and the tags auto-tagging added.
+      applyRecordUpdate(latest.current, withAiUnderstanding(asset, result.ai, result.tags, backend?.tag));
+      setState({ status: 'idle' });
+    } catch (error) {
+      setState({ status: 'error', message: (error as Error).message });
+    }
+  };
+
+  const badge = <ProvenanceBadge kind="ai" detail="Cloudinary" />;
+
+  if (!ai) {
+    let note: string | undefined;
+    if (isVideo) note = 'AI analysis runs on images; this video keeps its face and crop signals (fl_getinfo on the poster frame, below).';
+    else if (!backend?.configured) note = 'Cloudinary AI analysis runs through the VisualOps server connected to your Cloudinary cloud. It is not connected here.';
+    else if (!inTeamCloud)
+      note =
+        asset.source === 'sample'
+          ? 'Bundled sample on Cloudinary’s demo cloud. Cloudinary AI analysis runs on records in your team’s cloud.'
+          : 'This record is not in your team’s Cloudinary cloud, so Cloudinary AI cannot analyse it from here.';
+    const canAnalyze = !note;
+    return (
+      <Section title="Detected by Cloudinary AI" aside={badge}>
+        {canAnalyze ? (
+          <>
+            <p className="text-[12.5px] leading-relaxed text-ink-3">
+              Not analysed yet. Cloudinary AI captions the frame and detects objects (coco, with auto-tagging), and the result is stored on
+              the asset’s own context metadata. Uses 2 Cloudinary AI detections.
+            </p>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm mt-3"
+              disabled={state.status === 'running'}
+              onClick={() => void analyze()}
+              aria-describedby={state.status === 'error' ? errorId : undefined}
+            >
+              {state.status === 'running' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-signal" />}
+              {state.status === 'running' ? 'Understanding with Cloudinary AI…' : state.status === 'error' ? 'Try again' : 'Analyze with Cloudinary AI'}
+            </button>
+            <div role="status" aria-live="polite">
+              {state.status === 'error' && (
+                <Notice tone="warn" id={errorId}>
+                  Cloudinary AI analysis failed: {state.message}
+                </Notice>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="text-[12.5px] leading-relaxed text-ink-3">{note}</p>
+        )}
+      </Section>
+    );
+  }
+
+  const groups = aiObjectGroups(ai);
+  const boxes = aiObjectRegions(ai).length;
+  return (
+    <Section title="Detected by Cloudinary AI" aside={badge}>
+      <div role="status" aria-live="polite">
+        {ai.caption ? (
+          <p className="text-[14px] leading-relaxed text-ink">“{ai.caption}”</p>
+        ) : (
+          <p className="text-[12.5px] text-ink-3">Cloudinary AI returned no caption for this frame.</p>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <h4 className="label">Objects · coco</h4>
+          {onToggleAi && boxes > 0 && !isVideo && (
+            <button
+              type="button"
+              aria-pressed={aiOn}
+              onClick={onToggleAi}
+              className={cn(
+                'inline-flex h-6 items-center gap-1.5 rounded-[5px] border px-1.5 font-mono text-[10.5px] uppercase tracking-[0.04em] transition-colors',
+                aiOn ? 'border-line-strong bg-raised text-ink' : 'border-line text-ink-3 hover:text-ink-2',
+              )}
+            >
+              <span aria-hidden className={cn('h-2 w-2 rounded-[1px] border-[1.5px]', aiOn ? 'border-signal' : 'border-line-strong')} />
+              Boxes on frame · {boxes}
+            </button>
+          )}
+        </div>
+        {groups.length > 0 ? (
+          <ul aria-label="Objects detected by Cloudinary AI" className="space-y-1.5">
+            {groups.map((g) => (
+              <li key={g.label} className="grid grid-cols-[minmax(0,1fr)_72px_40px] items-center gap-3 text-[12.5px]">
+                <span className="min-w-0 truncate text-ink">
+                  {g.label}
+                  {g.count > 1 && <span className="num text-ink-3"> ×{g.count}</span>}
+                </span>
+                <span aria-hidden className="block h-1 overflow-hidden rounded-full bg-raised">
+                  <span className="block h-full origin-left bg-signal" style={{ transform: `scaleX(${Math.max(0, Math.min(1, g.confidence))})` }} />
+                </span>
+                <span className="num text-right font-mono text-[11.5px] text-ink-2" title="Cloudinary's confidence">
+                  {Math.round(g.confidence * 100)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[12.5px] text-ink-3">No objects detected above the confidence threshold.</p>
+        )}
+      </div>
+
+      {ai.tags.length > 0 && (
+        <div className="mt-4">
+          <h4 className="label mb-2">Auto-tags added to the asset</h4>
+          <ul aria-label="Tags added by Cloudinary auto-tagging" className="flex flex-wrap gap-1.5">
+            {ai.tags.map((t) => (
+              <li
+                key={t}
+                className="rounded-[5px] border border-[color-mix(in_oklab,var(--color-signal)_35%,transparent)] px-1.5 py-0.5 font-mono text-[11px] text-ink-2"
+              >
+                {t}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <dl className="mt-4 grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-1 font-mono text-[11px]">
+        <dt className="text-ink-3">model</dt>
+        <dd className="min-w-0 text-ink-2">{ai.model ?? 'Cloudinary AI Content Analysis'}</dd>
+        {ai.analyzedAt && (
+          <>
+            <dt className="text-ink-3">analysed</dt>
+            <dd className="num min-w-0 text-ink-2">
+              {formatDateTime(ai.analyzedAt)} · {relativeTime(ai.analyzedAt, now)}
+            </dd>
+          </>
+        )}
+      </dl>
+      <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+        Machine-generated by Cloudinary and stored on the asset. Confidence is Cloudinary’s own; the finding above is the human record.
+      </p>
+      {warning && <Notice tone="warn">{warning}</Notice>}
+    </Section>
+  );
+}
+
+/**
+ * Takes a team-cloud record out of the VisualOps workspace after a confirm step: the server removes the
+ * VisualOps tag from the asset (DELETE /api/assets/[id]). Non-destructive — the media stays in Cloudinary.
+ */
+function RemoveFromVisualOps({ asset, onRemoved }: { asset: MediaAsset; onRemoved: () => void }) {
+  const data = useConsoleData();
+  const latest = useLatest(data);
+  const tag = data.backend?.tag ?? 'visualops';
+  const [step, setStep] = useState<{ status: 'idle' | 'confirm' | 'running' } | { status: 'error'; message: string }>({ status: 'idle' });
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const confirming = step.status !== 'idle';
+
+  useEffect(() => {
+    if (step.status === 'confirm') confirmRef.current?.focus({ preventScroll: true });
+  }, [step.status]);
+
+  const remove = async () => {
+    setStep({ status: 'running' });
+    try {
+      await untagAsset(asset.publicId, asset.resourceType);
+      applyRecordRemoval(latest.current, asset.id);
+      onRemoved();
+    } catch (error) {
+      setStep({ status: 'error', message: (error as Error).message });
+    }
+  };
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm flex-1 text-ink-3"
+        onClick={() => setStep({ status: 'confirm' })}
+        title={`Removes the “${tag}” tag so the record leaves VisualOps. The media stays in Cloudinary.`}
+      >
+        <Trash2 className="h-3.5 w-3.5" /> Remove from VisualOps
+      </button>
+    );
+  }
+  return (
+    <div role="group" aria-label="Remove from VisualOps" className="basis-full rounded-[8px] border border-line-strong bg-raised px-3 py-2.5">
+      <p className="text-[12.5px] leading-relaxed text-ink-2">
+        Remove this record from VisualOps? The <span className="font-mono text-ink">{tag}</span> tag is removed from the asset, so it leaves the
+        workspace on every device. The media, its other tags and its metadata stay in your Cloudinary cloud.
+      </p>
+      {step.status === 'error' && (
+        <p role="alert" className="mt-2 text-[12px] text-critical">
+          {step.message}
+        </p>
+      )}
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <button ref={confirmRef} type="button" className="btn btn-secondary btn-sm" disabled={step.status === 'running'} onClick={() => void remove()}>
+          {step.status === 'running' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          {step.status === 'error' ? 'Try again' : 'Remove from VisualOps'}
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={step.status === 'running'} onClick={() => setStep({ status: 'idle' })}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Notice({ tone, id, children }: { tone: 'signal' | 'warn'; id?: string; children: ReactNode }) {
   const Icon = tone === 'warn' ? TriangleAlert : ScanFace;
   return (
     <p
+      id={id}
       className={cn(
         'mt-4 flex items-start gap-2 rounded-[8px] border px-3 py-2 text-[12px] leading-relaxed text-ink-2',
         tone === 'warn'
@@ -443,16 +750,24 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
   );
 }
 
-function Ledger({ rows }: { rows: Array<{ label: string; value: ReactNode }> }) {
+function Ledger({ rows, title, aside }: { rows: Array<{ label: string; value: ReactNode }>; title?: string; aside?: ReactNode }) {
   return (
-    <dl className="grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 border-t border-line px-6 py-4 text-[13px] leading-snug">
-      {rows.map((row) => (
-        <Fragment key={row.label}>
-          <dt className="py-1.5 text-[12px] text-ink-3">{row.label}</dt>
-          <dd className="min-w-0 py-1.5 text-ink">{row.value}</dd>
-        </Fragment>
-      ))}
-    </dl>
+    <div className="border-t border-line px-6 py-4">
+      {(title || aside) && (
+        <div className="mb-1.5 flex items-baseline justify-between gap-3">
+          {title && <h3 className="label">{title}</h3>}
+          {aside}
+        </div>
+      )}
+      <dl className="grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 text-[13px] leading-snug">
+        {rows.map((row) => (
+          <Fragment key={row.label}>
+            <dt className="py-1.5 text-[12px] text-ink-3">{row.label}</dt>
+            <dd className="min-w-0 py-1.5 text-ink">{row.value}</dd>
+          </Fragment>
+        ))}
+      </dl>
+    </div>
   );
 }
 

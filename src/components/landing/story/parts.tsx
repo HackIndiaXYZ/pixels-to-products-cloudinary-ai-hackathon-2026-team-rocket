@@ -209,9 +209,10 @@ export function ActionPanel({ className }: { className?: string }) {
 /**
  * Paper inspection report built from the search result. The evidence frame is
  * rendered by Cloudinary (exposure, e_pixelate_faces on any faces it detects,
- * burned-in audit stamp); the fingerprint is a SHA-256 of the report payload
- * computed in this browser. With `live`, the pinned scene reveals the frame
- * and fingerprint itself.
+ * burned-in audit stamp); the fingerprint is a SHA-256 of a fixed sample report
+ * payload (see `reportJson`) computed in this browser — the payload carries the
+ * same evidence URL this sheet displays. With `live`, the pinned scene reveals
+ * the frame and fingerprint itself.
  */
 export function ReportSheet({
   evidenceSrc,
@@ -295,17 +296,18 @@ export function ReportSheet({
         </div>
       ))}
 
+      {/* The digest is computed over a fixed sample report payload (reportJson) that names exactly the frame shown above. */}
       <div
         data-sc={live ? 'hash' : undefined}
-        className={cn(
-          'mt-2.5 flex items-center justify-between gap-3 border-t border-black/10 pt-2 font-mono text-[9.5px] text-black/55',
-          live && 'opacity-0',
-        )}
+        className={cn('mt-2.5 border-t border-black/10 pt-2 font-mono text-[9.5px] text-black/55', live && 'opacity-0')}
       >
-        <span className="truncate">
-          SHA-256 <span className="text-black/80">{shortHash(hash)}</span>
-        </span>
-        <span className="shrink-0 text-[10.5px]">Sample annotations</span>
+        <div className="truncate">SHA-256 · sample report payload</div>
+        <div className="mt-0.5 flex items-center justify-between gap-3">
+          <span className="num truncate text-black/80">{shortHash(hash)}</span>
+          <span className="shrink-0 text-[10px]" title="Human classified · sample annotations written by the VisualOps team">
+            Sample annotations
+          </span>
+        </div>
       </div>
     </div>
   );

@@ -5,8 +5,12 @@ import { pluralize } from '@/lib/format';
  * Ask VisualOps — a transparent query parser.
  *
  * Plain-language questions are turned into explicit filters (severity,
- * category, site, time window, media type, status) plus free-text keywords
- * that are matched against each record's tags, title, finding and file name.
+ * category, site, time window, media type, status) plus free-text keywords.
+ * Keywords are matched against two kinds of fields, and every match says which:
+ *   - HUMAN CLASSIFIED: the record's tags, title, finding title and ID, file name,
+ *     site, zone and category (entered at ingest, or team-written sample annotations);
+ *   - AI DETECTED: Cloudinary's AI understanding of the media — its caption, the
+ *     objects it detected and the tags its auto-tagging added (see lib/cloudinary/ai).
  * There is no language model here: the interpretation is shown to the user as
  * chips so they can see exactly how the question was understood.
  *
@@ -15,6 +19,9 @@ import { pluralize } from '@/lib/format';
  *   - generic category / media words ("structural", "equipment", "photos") become filters only;
  *   - object nouns that imply a category ("bridge", "helmet", "rebar", "truck") set the category
  *     filter AND stay keywords, so "bridge" ranks the bridge record, not every structural one.
+ *     A category set only by such nouns is soft: a record that mentions the noun itself (in its
+ *     record or in Cloudinary's AI understanding) passes it whatever its own category, so
+ *     "trucks" also finds a road photo in which Cloudinary detected a truck.
  * Negation ("without helmets") is detected but not inverted: the words that follow it are
  * reported on `ParsedQuery.negated` so the interface can say the results still match them.
  */
@@ -57,6 +64,13 @@ export interface ParsedQuery {
    * ("sites with no issues"). "not resolved" is understood as a status and is not listed.
    */
   negators?: string[];
+  /**
+   * Categories set only by object nouns, with the (stemmed) nouns that set them, e.g.
+   * `{ equipment: ['truck'] }` for "trucks". Such a category is soft: a record that mentions one of
+   * its nouns passes the category filter whatever its own category. A category set by a generic
+   * word ("structural", "safety") is absent here and always filters.
+   */
+  impliedCategories?: Partial<Record<Category, string[]>>;
   /** Text each structured filter consumed, in normalised (lower-case) form. Used by relaxations(). */
   spans?: Partial<Record<FilterKey, string[]>>;
   /** The clock (ms) the time window was computed against. */
@@ -107,7 +121,9 @@ const STOPWORDS = new Set(
     'problems problem findings finding media assets asset evidence items records record inspection inspections ' +
     'and or to by near about this last past week weeks today yesterday month months day days hours hour ' +
     'visual data photo photos image images video videos clips clip footage sites site location locations ' +
-    'yet there their it its do does did can could should would will my our we you how many much when why been being into'
+    'yet there their it its do does did can could should would will my our we you how many much when why been being into ' +
+    // Words that only frame the question ("safety incidents", "related to VO-1042"): nothing to match.
+    'incident incidents related relating regarding concerning involving linked associated showing'
   ).split(' '),
 );
 
@@ -345,15 +361,24 @@ export function parseQuery(input: string, knownSites: string[], now: number = Da
   }
 
   // Category words are not consumed: object nouns among them stay keywords (see FILTER_ONLY).
+  // A category named by a generic word is hard; one set only by object nouns is soft (see ParsedQuery).
   const categories = new Set<Category>();
+  const impliedCategories: Partial<Record<Category, string[]>> = {};
   for (const [re, category] of CATEGORY_WORDS) {
     const matches = q.match(new RegExp(re.source, 'g'));
     if (matches) {
       categories.add(category);
+      const nouns: string[] = [];
+      let generic = false;
       matches.forEach((m) => {
-        understood.push(m.trim());
-        span('categories', m.trim());
+        const text = m.trim();
+        understood.push(text);
+        span('categories', text);
+        const words = text.split(/\s+/).map(stem);
+        if (words.some((w) => FILTER_ONLY.has(w))) generic = true;
+        else nouns.push(words.join(' '));
       });
+      if (!generic && nouns.length) impliedCategories[category] = Array.from(new Set(nouns));
     }
   }
 
@@ -412,15 +437,83 @@ export function parseQuery(input: string, knownSites: string[], now: number = Da
     understood: Array.from(new Set(understood)),
     negated: negation.terms,
     negators: negation.words,
+    impliedCategories,
     spans,
     now,
   };
 }
 
+/**
+ * Where a keyword matched. Human-classified fields come from the record (entered at ingest, or
+ * team-written sample annotations); AI fields come from Cloudinary's AI Content Analysis.
+ */
+export type MatchField =
+  | 'tag'
+  | 'title'
+  | 'finding'
+  | 'finding-id'
+  | 'file'
+  | 'site'
+  | 'zone'
+  | 'category'
+  | 'ai-caption'
+  | 'ai-object'
+  | 'ai-tag';
+
+/** `human`: classified by a person; `ai`: detected by Cloudinary's AI. */
+export type MatchSource = 'human' | 'ai';
+
+export const FIELD_SOURCE: Record<MatchField, MatchSource> = {
+  tag: 'human',
+  title: 'human',
+  finding: 'human',
+  'finding-id': 'human',
+  file: 'human',
+  site: 'human',
+  zone: 'human',
+  category: 'human',
+  'ai-caption': 'ai',
+  'ai-object': 'ai',
+  'ai-tag': 'ai',
+};
+
+export const FIELD_LABEL: Record<MatchField, string> = {
+  tag: 'tag',
+  title: 'title',
+  finding: 'finding title',
+  'finding-id': 'finding ID',
+  file: 'file name',
+  site: 'site',
+  zone: 'zone',
+  category: 'category',
+  'ai-caption': 'caption',
+  'ai-object': 'detected object',
+  'ai-tag': 'auto-tag',
+};
+
+/** How one keyword matched one record. */
+export interface KeywordMatch {
+  keyword: string;
+  /** The keyword's terms that matched (the keyword itself and/or its related terms), in search order. */
+  variants: string[];
+  /** The fields they matched in, human-classified fields first. */
+  fields: MatchField[];
+}
+
 export interface SearchHit {
   asset: MediaAsset;
   score: number;
+  /** Keywords the record matched. */
   matched: string[];
+  /** Per matched keyword: which terms matched, and in which fields (human classified or AI detected). */
+  matches: KeywordMatch[];
+}
+
+/** Which sources a keyword match came from: only the record, only Cloudinary's AI, or both. */
+export function matchSourceOf(match: Pick<KeywordMatch, 'fields'>): MatchSource | 'both' {
+  const human = match.fields.some((f) => FIELD_SOURCE[f] === 'human');
+  const ai = match.fields.some((f) => FIELD_SOURCE[f] === 'ai');
+  return human && ai ? 'both' : ai ? 'ai' : 'human';
 }
 
 export interface SearchResult {
@@ -433,28 +526,77 @@ export interface SearchResult {
   relaxed: boolean;
 }
 
+interface HayEntry {
+  text: string;
+  field: MatchField;
+}
+
+const hayCache = new WeakMap<MediaAsset, HayEntry[]>();
+
 /**
- * Keywords match descriptors only (tags, titles, file, location, category) —
- * not free-text observations, which contain negations such as "no damage visible".
+ * What keywords are matched against. From the record: descriptors only (tags, titles, finding ID,
+ * file, location, category) — not free-text observations, which contain negations such as "no
+ * damage visible". From Cloudinary's AI: its one-sentence caption of what is in frame, the object
+ * labels it detected and the tags its auto-tagging added. A tag listed in `ai.tags` was added by
+ * Cloudinary, so it counts as AI detected even though it also sits on the asset's tags.
  */
-function haystack(asset: MediaAsset): string[] {
+function haystack(asset: MediaAsset): HayEntry[] {
+  const cached = hayCache.get(asset);
+  if (cached) return cached;
+  const out: HayEntry[] = [];
+  const push = (text: string | undefined, field: MatchField) => {
+    const t = text?.trim().toLowerCase();
+    if (t) out.push({ text: t, field });
+  };
   const f = asset.finding;
-  return [...asset.tags, asset.title, asset.fileName, asset.site, asset.zone ?? '', f?.title ?? '', f?.category ?? ''].map((s) =>
-    s.toLowerCase(),
-  );
+  const ai = asset.ai;
+  const aiTags = new Set((ai?.tags ?? []).map((t) => t.toLowerCase()));
+  for (const tag of asset.tags) push(tag, aiTags.has(tag.toLowerCase()) ? 'ai-tag' : 'tag');
+  push(asset.title, 'title');
+  push(asset.fileName, 'file');
+  push(asset.site, 'site');
+  push(asset.zone, 'zone');
+  if (f) {
+    push(f.title, 'finding');
+    push(f.id, 'finding-id');
+    push(f.category, 'category');
+  }
+  if (ai) {
+    push(ai.caption, 'ai-caption');
+    for (const o of ai.objects) push(o.label, 'ai-object');
+    const onAsset = new Set(asset.tags.map((t) => t.toLowerCase()));
+    for (const tag of ai.tags) if (!onAsset.has(tag.toLowerCase())) push(tag, 'ai-tag');
+  }
+  hayCache.set(asset, out);
+  return out;
 }
 
 /**
  * Word-start matching: "crack" finds "cracked", but "dent" never matches "identifiable".
- * A hyphen in a term also matches a space ("hot-work" finds "hot work").
+ * A hyphen or space in a term also matches the other ("hot-work" finds "hot work").
  */
 function termPattern(term: string): RegExp {
-  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRe(term).replace(/-/g, '[-\\s]')}`, 'u');
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRe(term).replace(/[-\s]+/g, '[-\\s]')}`, 'u');
 }
 
-function keywordMatcher(keyword: string): (hay: string[]) => string[] {
+const FIELD_ORDER = Object.keys(FIELD_SOURCE) as MatchField[];
+
+function keywordMatcher(keyword: string): (hay: HayEntry[]) => KeywordMatch {
   const patterns = variantsOf(keyword).map((v) => [v, termPattern(v)] as const);
-  return (hay) => patterns.filter(([, re]) => hay.some((h) => re.test(h))).map(([v]) => v);
+  return (hay) => {
+    const variants: string[] = [];
+    const fields = new Set<MatchField>();
+    for (const [variant, re] of patterns) {
+      let hit = false;
+      for (const entry of hay) {
+        if (!re.test(entry.text)) continue;
+        hit = true;
+        fields.add(entry.field);
+      }
+      if (hit) variants.push(variant);
+    }
+    return { keyword, variants, fields: FIELD_ORDER.filter((f) => fields.has(f)) };
+  };
 }
 
 /**
@@ -462,11 +604,38 @@ function keywordMatcher(keyword: string): (hay: string[]) => string[] {
  * Use it to disclose "via related terms" matches truthfully.
  */
 export function matchedVariants(asset: MediaAsset, keyword: string): string[] {
+  return keywordMatcher(keyword)(haystack(asset)).variants;
+}
+
+/** How `keyword` matches `asset`: its matching terms and the fields they matched in (none when it does not match). */
+export function keywordMatch(asset: MediaAsset, keyword: string): KeywordMatch {
   return keywordMatcher(keyword)(haystack(asset));
+}
+
+/** Whether a soft category's noun ("truck") is mentioned anywhere on the record, human or AI. */
+function mentionsAny(hay: HayEntry[], nouns: string[]): boolean {
+  return nouns.some((noun) => keywordMatcher(noun)(hay).variants.length > 0);
 }
 
 function isFilterWord(keyword: string): boolean {
   return FILTER_ONLY.has(keyword) || NEGATORS.has(keyword);
+}
+
+/**
+ * The category filter. A category named by a generic word must match the record's own finding.
+ * When every category was set only by object nouns ("trucks"), a record that mentions one of those
+ * nouns anywhere — its record or Cloudinary's AI understanding — passes as well.
+ */
+function passesCategory(parsed: ParsedQuery, asset: MediaAsset): boolean {
+  if (!parsed.categories.length) return true;
+  const f = asset.finding;
+  if (f && parsed.categories.includes(f.category)) return true;
+  const implied = parsed.impliedCategories ?? {};
+  if (!parsed.categories.every((c) => implied[c]?.length)) return false;
+  return mentionsAny(
+    haystack(asset),
+    parsed.categories.flatMap((c) => implied[c] ?? []),
+  );
 }
 
 export function runQuery(parsed: ParsedQuery, assets: MediaAsset[]): SearchResult {
@@ -476,7 +645,7 @@ export function runQuery(parsed: ParsedQuery, assets: MediaAsset[]): SearchResul
     if (parsed.statuses.length && (!f || !parsed.statuses.includes(f.status))) return false;
     if (parsed.sites.length && !parsed.sites.includes(asset.site)) return false;
     if (parsed.mediaTypes.length === 1 && asset.resourceType !== parsed.mediaTypes[0]) return false;
-    if (parsed.categories.length && (!f || !parsed.categories.includes(f.category))) return false;
+    if (!passesCategory(parsed, asset)) return false;
     if (parsed.window) {
       const t = new Date(asset.capturedAt).getTime();
       if (t < parsed.window.from || t >= parsed.window.to) return false;
@@ -486,13 +655,14 @@ export function runQuery(parsed: ParsedQuery, assets: MediaAsset[]): SearchResul
 
   // Generic category/media words and negation words only filter; object nouns ("bridge") rank.
   const keywords = Array.from(new Set(parsed.keywords.filter((k) => !isFilterWord(k))));
-  const matchers = keywords.map((k) => [k, keywordMatcher(k)] as const);
+  const matchers = keywords.map((k) => keywordMatcher(k));
 
   const scored: SearchHit[] = filtered.map((asset) => {
     const hay = haystack(asset);
-    const matched = matchers.filter(([, match]) => match(hay).length > 0).map(([k]) => k);
+    const matches = matchers.map((match) => match(hay)).filter((m) => m.variants.length > 0);
+    const matched = matches.map((m) => m.keyword);
     const severityBoost = { critical: 0.4, high: 0.3, medium: 0.2, low: 0.1 }[asset.finding?.severity ?? 'low'];
-    return { asset, matched, score: matched.length * 2 + severityBoost };
+    return { asset, matched, matches, score: matched.length * 2 + severityBoost };
   });
 
   const unmatchedKeywords = keywords.filter((k) => !scored.some((h) => h.matched.includes(k)));
@@ -649,15 +819,26 @@ export function relaxations(
     const next: ParsedQuery =
       filter === 'window'
         ? { ...parsed, window: undefined, spans: { ...parsed.spans, window: [] } }
-        : { ...parsed, [filter]: [], spans: { ...parsed.spans, [filter]: [] } };
+        : filter === 'categories'
+          ? { ...parsed, categories: [], impliedCategories: {}, spans: { ...parsed.spans, categories: [] } }
+          : { ...parsed, [filter]: [], spans: { ...parsed.spans, [filter]: [] } };
     consider(`drop-${filter}`, filter, 'drop', next, `Without ${filterLabel(parsed, filter)}`, rewriteWithout(filter));
   }
   return out;
 }
 
+/**
+ * Questions the console offers as examples. Each is answered by the parser above — filters from
+ * the record, keywords over the record and Cloudinary's AI understanding — and the palette shows
+ * how many records each really returns in the current workspace. The finding-ID question is
+ * rewritten to a finding that exists in the workspace when VO-1042 does not (see Ask's engine).
+ */
 export const EXAMPLE_QUERIES = [
-  'Show all damaged equipment',
-  'Find construction photos containing cracks',
-  'Show high severity issues from Building B',
-  'Find all inspection media from this week',
+  'Show severe structural findings',
+  'Find bridge inspection media',
+  'Show images with cracks',
+  'Find recent safety incidents',
+  'sinkhole',
+  'trucks',
+  'Show evidence related to VO-1042',
 ];

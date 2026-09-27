@@ -56,7 +56,7 @@ export function Connector({
           >
             <span
               className={cn(
-                'absolute rounded-full bg-signal shadow-[0_0_6px_color-mix(in_oklab,var(--color-signal)_70%,transparent)]',
+                'absolute rounded-full bg-signal',
                 horizontal ? 'right-0 top-[3.5px] h-[3px] w-3' : 'bottom-0 left-[3.5px] h-3 w-[3px]',
               )}
             />

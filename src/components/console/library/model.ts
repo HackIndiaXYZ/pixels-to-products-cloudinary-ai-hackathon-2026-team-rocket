@@ -1,11 +1,12 @@
 import type { Category, MediaAsset, ResourceType, Severity } from '@/lib/types';
 import { CATEGORIES, CATEGORY_LABEL, SEVERITIES, SEVERITY_RANK, captureBasisOf, fieldAssets } from '@/lib/analytics';
+import { aiSearchText } from '@/lib/cloudinary/ai';
 import { formatDateTime, relativeTime } from '@/lib/format';
 
 /** Library filter state and the pure functions that apply it. */
 
 export type TypeFilter = 'all' | ResourceType;
-export type SourceFilter = 'all' | 'sample' | 'upload' | 'sync' | 'reference';
+export type SourceFilter = 'all' | 'sample' | 'upload' | 'sync';
 export type SortOrder = 'newest' | 'oldest' | 'severity';
 
 export interface LibraryFilters {
@@ -30,9 +31,8 @@ export const DEFAULT_FILTERS: LibraryFilters = {
 export const SOURCE_LABEL: Record<SourceFilter, string> = {
   all: 'All sources',
   sample: 'Sample dataset',
-  upload: 'Uploaded here',
+  upload: 'Ingested with VisualOps',
   sync: 'Synced from Cloudinary',
-  reference: 'Cloudinary sample assets',
 };
 
 export const SORT_LABEL: Record<SortOrder, string> = {
@@ -41,13 +41,15 @@ export const SORT_LABEL: Record<SortOrder, string> = {
   severity: 'Severity',
 };
 
-/** Field media by default; the reference collection only when asked for. */
-export function poolFor(assets: MediaAsset[], source: SourceFilter): MediaAsset[] {
-  return source === 'reference' ? assets.filter((a) => a.collection === 'reference') : fieldAssets(assets);
+/** The records the Library lists: field media. */
+export function poolFor(assets: MediaAsset[]): MediaAsset[] {
+  return fieldAssets(assets);
 }
 
-function haystack(asset: MediaAsset): string {
+/** Human-classified text: the record's descriptors, finding and tags (auto-tags excluded — they are AI's). */
+function humanText(asset: MediaAsset): string {
   const f = asset.finding;
+  const auto = new Set((asset.ai?.tags ?? []).map((t) => t.toLowerCase()));
   return [
     asset.title,
     asset.fileName,
@@ -58,17 +60,50 @@ function haystack(asset: MediaAsset): string {
     f?.id ?? '',
     f ? CATEGORY_LABEL[f.category] : '',
     f?.severity ?? '',
-    ...asset.tags,
+    ...asset.tags.filter((t) => !auto.has(t.toLowerCase())),
   ]
     .join(' ')
     .toLowerCase();
 }
 
+/** Cloudinary's AI understanding: caption, detected object labels and auto-tags. */
+function aiText(asset: MediaAsset): string {
+  return aiSearchText(asset.ai).join(' ');
+}
+
+const textCache = new WeakMap<MediaAsset, { human: string; ai: string }>();
+
+function texts(asset: MediaAsset): { human: string; ai: string } {
+  let t = textCache.get(asset);
+  if (!t) {
+    t = { human: humanText(asset), ai: aiText(asset) };
+    textCache.set(asset, t);
+  }
+  return t;
+}
+
+function terms(query: string): string[] {
+  return query.toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+/** Every term of the search box appears in the record — human classified or AI detected. */
 export function matchesText(asset: MediaAsset, query: string): boolean {
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) return true;
-  const hay = haystack(asset);
-  return terms.every((term) => hay.includes(term));
+  const words = terms(query);
+  if (!words.length) return true;
+  const { human, ai } = texts(asset);
+  return words.every((term) => human.includes(term) || ai.includes(term));
+}
+
+/**
+ * Search-box terms this record matches only through Cloudinary's AI understanding (caption,
+ * detected objects, auto-tags) — shown with an "AI detected" badge so the match is never read
+ * as part of the human record. Empty when the record does not match or every term is in the record.
+ */
+export function aiOnlyTerms(asset: MediaAsset, query: string): string[] {
+  const words = terms(query);
+  if (!words.length || !matchesText(asset, query)) return [];
+  const { human, ai } = texts(asset);
+  return words.filter((term) => !human.includes(term) && ai.includes(term));
 }
 
 type Facet = 'type' | 'severity' | 'category' | 'site';
@@ -79,7 +114,7 @@ export function matches(asset: MediaAsset, f: LibraryFilters, ignore?: Facet): b
   if (ignore !== 'severity' && f.severities.length && (!asset.finding || !f.severities.includes(asset.finding.severity))) return false;
   if (ignore !== 'category' && f.category !== 'all' && asset.finding?.category !== f.category) return false;
   if (ignore !== 'site' && f.site !== 'all' && asset.site !== f.site) return false;
-  if (f.source !== 'all' && f.source !== 'reference' && asset.source !== f.source) return false;
+  if (f.source !== 'all' && asset.source !== f.source) return false;
   return matchesText(asset, f.query);
 }
 

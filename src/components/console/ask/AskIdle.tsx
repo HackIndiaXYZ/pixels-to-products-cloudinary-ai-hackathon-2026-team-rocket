@@ -2,6 +2,7 @@
 
 import { ArrowRight } from 'lucide-react';
 import { SeverityDot } from '@/components/ui/badges';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { cn } from '@/components/ui/cn';
 import type { Facet } from './engine';
 
@@ -16,18 +17,27 @@ function records(n: number) {
 
 /**
  * The empty state: example questions (each with the number of records it really
- * returns, previewed on the index strip while hovered) and browse-by facets.
+ * returns, previewed on the index strip while hovered), browse-by facets, and
+ * how much of the index Cloudinary's AI has described.
  */
 export function AskIdle({
   examples,
   facets,
   activeExample,
+  analysed,
+  total,
+  sampleWorkspace,
   onAsk,
   onPreview,
 }: {
   examples: ExamplePreview[];
   facets: { severity: Facet[]; sites: Facet[]; media: Facet[] };
   activeExample: number;
+  /** Records carrying Cloudinary AI understanding (caption, objects, auto-tags). */
+  analysed: number;
+  total: number;
+  /** The bundled sample workspace (Cloudinary's demo cloud), where AI Content Analysis cannot run. */
+  sampleWorkspace: boolean;
   onAsk: (query: string) => void;
   onPreview: (index: number) => void;
 }) {
@@ -66,11 +76,40 @@ export function AskIdle({
             );
           })}
         </ul>
-        <p className="mt-4 max-w-[52ch] text-[12.5px] leading-relaxed text-ink-3">
+        <p className="mt-4 max-w-[56ch] text-[12.5px] leading-relaxed text-ink-3">
           Questions become explicit filters — severity, category, site, time, media type, status — plus keywords matched
-          against each record’s tags, titles and file names; some keywords also search related terms, which are listed.
-          Parsing runs in your browser, with no language model. The interpretation is always shown: words that match
-          nothing are struck through rather than dropped, and negation (“without”, “no”) is flagged, not applied.
+          against each record’s human-classified fields (tags, titles, finding IDs, file names, locations) and, where
+          Cloudinary has analysed the media, its AI caption, detected objects and auto-tags. Every match says which of the
+          two it came from; some keywords also search related terms, which are listed. Parsing runs in your browser, with
+          no language model. Words that match nothing are struck through rather than dropped, and negation (“without”,
+          “no”) is flagged, not applied.
+        </p>
+        <p className="mt-3 flex max-w-[56ch] flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-relaxed text-ink-3">
+          {analysed > 0 ? (
+            <>
+              <ProvenanceBadge kind="ai" detail="Cloudinary" />
+              <span>
+                <span className="num text-ink-2">{analysed}</span> of <span className="num">{total}</span> records carry
+                Cloudinary’s caption and detected objects.
+              </span>
+            </>
+          ) : sampleWorkspace ? (
+            <>
+              <ProvenanceBadge kind="human" detail="sample annotation" />
+              <span>
+                Sample workspace: matches come from the team’s annotations. Cloudinary AI Content Analysis runs on the
+                team’s own cloud.
+              </span>
+            </>
+          ) : (
+            <>
+              <ProvenanceBadge kind="human" />
+              <span>
+                No record has been analysed by Cloudinary AI yet — run a photo through the Studio pipeline (Understand) to
+                add its caption and objects to the index.
+              </span>
+            </>
+          )}
         </p>
       </section>
 

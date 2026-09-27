@@ -225,6 +225,44 @@ export function provenanceSummary(records: FindingRecord[]): string {
     .join(' · ');
 }
 
+const HUMAN_DETAIL: Record<AssetSource, string> = {
+  sample: 'sample annotation',
+  upload: 'entered at ingest',
+  sync: 'Cloudinary context',
+};
+
+/**
+ * Who classified a record, for the "Human classified" provenance badge. Finding fields (title,
+ * category, severity, status, observation, action, marked region) are always a person's words:
+ *  - `sample annotation`: team-written for the sample workspace — the bundled dataset, or records on
+ *    the team's cloud whose context says `provenance=sample-annotation` (mapped to source `sample`);
+ *  - `entered at ingest`: typed in VisualOps' ingest form when the media was uploaded;
+ *  - `Cloudinary context`: contextual metadata written outside VisualOps and synced by tag.
+ */
+export function humanProvenanceDetail(asset: MediaAsset): string {
+  return HUMAN_DETAIL[asset.source] ?? HUMAN_DETAIL.sample;
+}
+
+/** The distinct human-provenance details across a set of records, in a stable order. */
+export function humanProvenanceDetails(assets: MediaAsset[]): string[] {
+  const order = Object.values(HUMAN_DETAIL);
+  const found = new Set(assets.map(humanProvenanceDetail));
+  return order.filter((d) => found.has(d));
+}
+
+/** Records Cloudinary's AI Content Analysis has described (caption, objects or auto-tags). */
+export function aiAnalysed(asset: MediaAsset): boolean {
+  const ai = asset.ai;
+  return Boolean(ai && (ai.caption || ai.objects.length || ai.tags.length || ai.analyzedAt));
+}
+
+/** "truck 77% · person 64%" — detected objects with Cloudinary's confidence, most confident first. */
+export function aiObjectsLine(asset: MediaAsset, max = 4): string {
+  const objects = asset.ai?.objects ?? [];
+  const shown = objects.slice(0, max).map((o) => `${o.label} ${Math.round(o.confidence * 100)}%`);
+  return objects.length > max ? `${shown.join(' · ')} · +${objects.length - max}` : shown.join(' · ');
+}
+
 export interface CaptureWhen {
   /** '5h ago'; a camera-clock capture gives its own date instead. */
   relative: string;

@@ -5,6 +5,7 @@ import { FileText } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { categorySeverityMatrix, findingRecords, severityCounts, sitesOf, statusCounts } from '@/lib/analytics';
 import { useDeviceTier } from '@/components/motion/hooks';
+import { ProvenanceBadge } from '@/components/ui/Provenance';
 import { useConsoleActions, useConsoleData } from '../store';
 import { FilterBar } from '../incidents/FilterBar';
 import { FindingList } from '../incidents/FindingList';
@@ -33,6 +34,11 @@ const LAYOUT_LIMIT = 30;
  * It opens on status 'open', the same set the Overview's "Open findings" and
  * the sidebar badge count. Memoised with narrow store hooks, so opening Ask or
  * the Inspector over it never re-renders the view.
+ *
+ * Provenance is shown throughout: finding fields are human classified (sample
+ * annotation / entered at ingest), Cloudinary's caption and objects are AI
+ * detected (on the lead and major rows, when the media has been analysed), and
+ * every count, ranking and the matrix are system derived.
  */
 export const IncidentsView = memo(function IncidentsView() {
   const { assets, now } = useConsoleData();
@@ -106,7 +112,16 @@ export const IncidentsView = memo(function IncidentsView() {
     <div className="space-y-5">
       <ViewHeader
         title="Incidents"
-        subtitle="Every finding from field media, ranked by consequence — where it is, how severe, and whether it is resolved"
+        subtitle={
+          <>
+            Every finding from field media, ranked by consequence — where it is, how severe, and whether it is resolved.
+            <span className="mt-2 flex flex-wrap items-center gap-1.5">
+              <ProvenanceBadge kind="human" detail="findings" />
+              <ProvenanceBadge kind="ai" detail="Cloudinary caption · objects" />
+              <ProvenanceBadge kind="system" detail="counts · ranking" />
+            </span>
+          </>
+        }
         actions={
           <button
             type="button"

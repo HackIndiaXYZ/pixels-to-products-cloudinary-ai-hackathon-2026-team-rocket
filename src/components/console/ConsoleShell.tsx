@@ -91,7 +91,7 @@ function skipToContent(event: MouseEvent<HTMLAnchorElement>) {
  */
 export function ConsoleShell() {
   const { route } = useConsoleRoute();
-  const { assets, settings, backend } = useConsoleData();
+  const { assets, settings, backend, workspace } = useConsoleData();
   const { navigate, setPaletteOpen, setIngestOpen, setSettingsOpen } = useConsoleActions();
   const mod = useModKey();
 
@@ -100,7 +100,8 @@ export function ConsoleShell() {
   // Records beyond the sample dataset: uploads and syncs in this browser plus records read from the team's cloud.
   const ownCount = useMemo(() => assets.filter((a) => a.source !== 'sample').length, [assets]);
   const uploadsOn = Boolean(backend?.configured) || canUpload(settings);
-  const cloudName = backend?.configured && backend.cloudName ? backend.cloudName : settings.cloudName;
+  // Until the server has answered, don't claim a cloud: the build-time default would read "demo" for a second.
+  const cloudName = backend === null ? '…' : backend.configured && backend.cloudName ? backend.cloudName : settings.cloudName;
   const isDemo = cloudName === DEMO_CLOUD;
 
   const current = NAV.find((n) => n.view === route.view) ?? NAV[0];
@@ -254,10 +255,17 @@ export function ConsoleShell() {
             <div className="mt-auto space-y-3 border-t border-line px-1.5 pt-3">
               <div>
                 <div className="label">Dataset</div>
-                <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">
-                  {sampleCount} real field captures hosted on Cloudinary’s <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
-                  Findings are sample annotations, and capture times are set relative to now.
-                </p>
+                {workspace === 'cloud' ? (
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">
+                    {assets.length} records stored in your Cloudinary cloud <span className="font-mono text-ink-2">{cloudName}</span>, read with the
+                    Search API. Sample-workspace findings are team annotations; captions and objects are Cloudinary AI.
+                  </p>
+                ) : (
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">
+                    {sampleCount} real field captures hosted on Cloudinary’s <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
+                    Findings are sample annotations, and capture times are set relative to now.
+                  </p>
+                )}
               </div>
               <Link href="/" className="flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink">
                 Product story <ArrowUpRight className="h-3 w-3" />
