@@ -1,0 +1,247 @@
+/*
+ * Hero entrance choreography.
+ *
+ * Plain CSS keyframes so the brand moment starts on first paint, before
+ * hydration, and costs no JavaScript. Transform and opacity only.
+ * Delays are passed per element through the `--d` custom property.
+ * Under prefers-reduced-motion everything renders in its final state.
+ */
+
+/* Headline line: rises out of its own mask. */
+.mask {
+  display: block;
+  overflow: hidden;
+  /* Room for descenders (g) without changing the line rhythm. */
+  padding-bottom: 0.14em;
+  margin-bottom: -0.14em;
+}
+/* Mask vertically only, so a line that runs into the gutter is never cut. */
+@supports (overflow: clip) {
+  .mask {
+    overflow-x: visible;
+    overflow-y: clip;
+  }
+}
+
+.rise {
+  display: block;
+  animation: rise 980ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.fadeUp {
+  animation: fade-up 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.fade {
+  animation: fade 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+/* Inspection frame: settles into place, slightly after the headline. */
+.frameIn {
+  animation: frame-in 1100ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+/* Telemetry values populate once the frame has been read. */
+.value {
+  display: inline-block;
+  opacity: 0;
+}
+.value[data-on='true'] {
+  animation: fill 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+/*
+ * VISUALOPS brand band. Sized from its own container so the word always spans
+ * the content width (the word is ≈4.41em wide), capped by the viewport height
+ * on short screens. Letters are justified, so a capped word opens its tracking
+ * instead of leaving a ragged right edge.
+ */
+.band {
+  container-type: inline-size;
+  /* Low contrast on purpose: structure the headline stands on, never a second headline. */
+  color: var(--color-overlay);
+  user-select: none;
+  pointer-events: none;
+}
+/* Clips vertically only, so the entrance rises out of the baseline while widened letters may overhang the sides. */
+.bandMask {
+  display: block;
+  overflow: hidden;
+  font-size: calc(100cqw / 4.5);
+  line-height: 0.8;
+  padding-top: 0.04em;
+}
+@supports (overflow: clip) {
+  .bandMask {
+    overflow-x: visible;
+    overflow-y: clip;
+  }
+}
+@media (min-width: 1024px) {
+  /* Tucks under the bottom of the copy and the frame: structure, not a second headline. */
+  .bandMask {
+    font-size: min(calc(100cqw / 4.5), 34svh);
+    margin-top: -0.3em;
+  }
+}
+.bandRow {
+  display: flex;
+  justify-content: space-between;
+}
+.bandLetter {
+  display: block;
+}
+.bandGlyph {
+  display: block;
+  transform-origin: 50% 100%;
+  animation: band-rise 1250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bandLetter {
+    will-change: transform;
+  }
+}
+
+/*
+ * g_auto crop window: crop marks at the corners, dashed crop edges and a tick at
+ * the crop centre — a crop, not a detection box around a subject.
+ */
+.crop {
+  --crop-ink: var(--color-signal);
+  --crop-mark: 16px;
+  position: absolute;
+  pointer-events: none;
+  border-inline: 1px dashed color-mix(in oklab, var(--crop-ink) 75%, transparent);
+  background:
+    linear-gradient(var(--crop-ink), var(--crop-ink)) top left / var(--crop-mark) 2px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) top left / 2px var(--crop-mark),
+    linear-gradient(var(--crop-ink), var(--crop-ink)) top right / var(--crop-mark) 2px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) top right / 2px var(--crop-mark),
+    linear-gradient(var(--crop-ink), var(--crop-ink)) bottom left / var(--crop-mark) 2px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) bottom left / 2px var(--crop-mark),
+    linear-gradient(var(--crop-ink), var(--crop-ink)) bottom right / var(--crop-mark) 2px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) bottom right / 2px var(--crop-mark),
+    linear-gradient(var(--crop-ink), var(--crop-ink)) top center / 2px 10px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) bottom center / 2px 10px;
+  background-repeat: no-repeat;
+  animation: crop-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* Legend key: the same crop marks at swatch size. */
+.cropSwatch {
+  --crop-ink: var(--color-signal);
+  display: inline-block;
+  background:
+    linear-gradient(var(--crop-ink), var(--crop-ink)) top left / 4px 1.5px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) top left / 1.5px 4px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) top right / 4px 1.5px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) top right / 1.5px 4px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) bottom left / 4px 1.5px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) bottom left / 1.5px 4px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) bottom right / 4px 1.5px,
+    linear-gradient(var(--crop-ink), var(--crop-ink)) bottom right / 1.5px 4px;
+  background-repeat: no-repeat;
+}
+
+/* Product-state reveals toggled from React (legend, split handle). */
+.state {
+  opacity: 0;
+  transition: opacity 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.state[data-on='true'] {
+  opacity: 1;
+}
+
+@keyframes rise {
+  from {
+    transform: translate3d(0, 112%, 0);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes frame-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 22px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes band-rise {
+  from {
+    transform: translate3d(0, 104%, 0) scaleX(0.7);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes crop-in {
+  from {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fill {
+  from {
+    opacity: 0;
+    transform: translate3d(-6px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .fadeUp,
+  .fade,
+  .frameIn,
+  .bandGlyph,
+  .crop,
+  .value[data-on='true'] {
+    animation: none;
+  }
+  .value {
+    opacity: 1;
+  }
+  .state {
+    transition: none;
+  }
+}

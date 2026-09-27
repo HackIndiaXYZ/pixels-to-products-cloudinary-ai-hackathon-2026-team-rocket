@@ -141,3 +141,16 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# --- VisualOps (Next.js) ---
+/out/
+/build
+.DS_Store
+*.pem
+.vercel
+next-env.d.ts
+# Local AI-tooling state
+.claude/
+# Secrets never leave the machine: every .env file is ignored except the placeholder template.
+.env*
+!.env.example
