@@ -1,8 +1,19 @@
-# VISUALOPS — AI-POWERED VISUAL INTELLIGENCE
+<a id="readme-top"></a>
+
+<div align="center">
+
+<img src="src/app/icon.svg" width="72" height="72" alt="VisualOps logo: a square viewfinder frame with a green dot at its centre"/>
+
+# VisualOps
+
+### AI-powered visual intelligence
 
 **Turn visual data into operational intelligence.**
 
-<div align="center">
+<img src="https://img.shields.io/badge/Track%201-AI%20Media%20Pipelines-3dd6f5?style=for-the-badge&amp;labelColor=0a1120" height="30" alt="Track 1: AI Media Pipelines"/>
+<img src="https://img.shields.io/badge/Pixels%20to%20Products-Cloudinary%20AI%20Hackathon%202026-132036?style=for-the-badge&amp;logo=cloudinary&amp;logoColor=white&amp;labelColor=0a1120" height="30" alt="Pixels to Products — Cloudinary AI Hackathon 2026"/>
+
+<br/><br/>
 
 <a href="https://drive.google.com/file/d/1xYsK82FI_WE-OEBkqNwI58nKt9Tc4G-N/view?usp=sharing">
   <img src="https://img.shields.io/badge/%E2%96%B6%20Watch%20the%20demo-Google%20Drive-3dd6f5?style=for-the-badge&amp;logo=googledrive&amp;logoColor=white&amp;labelColor=0a1120" height="42" alt="Watch the VisualOps demo video"/>
@@ -10,19 +21,90 @@
 
 <sub><a href="https://drive.google.com/file/d/1xYsK82FI_WE-OEBkqNwI58nKt9Tc4G-N/view?usp=sharing">▶ Demo video — VisualOps in action</a> · Cloudinary AI Hackathon 2026 · Track 1: AI Media Pipelines</sub>
 
+<br/><br/>
+
+<img src="https://img.shields.io/badge/Next.js-16-0a1120?style=flat-square&amp;logo=nextdotjs&amp;logoColor=white" alt="Next.js 16"/>
+<img src="https://img.shields.io/badge/React-19-0a1120?style=flat-square&amp;logo=react&amp;logoColor=61dafb" alt="React 19"/>
+<img src="https://img.shields.io/badge/TypeScript-0a1120?style=flat-square&amp;logo=typescript&amp;logoColor=3178c6" alt="TypeScript"/>
+<img src="https://img.shields.io/badge/Tailwind%20CSS-v4-0a1120?style=flat-square&amp;logo=tailwindcss&amp;logoColor=38bdf8" alt="Tailwind CSS v4"/>
+<img src="https://img.shields.io/badge/Cloudinary-Upload%20%C2%B7%20AI%20%C2%B7%20Search%20%C2%B7%20Delivery-3448c5?style=flat-square&amp;logo=cloudinary&amp;logoColor=white" alt="Cloudinary: Upload, AI Content Analysis, Search and Delivery APIs"/>
+<img src="https://img.shields.io/badge/Node.js-20.9%2B-0a1120?style=flat-square&amp;logo=nodedotjs&amp;logoColor=5fa04e" alt="Node.js 20.9 or newer"/>
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0a1120?style=flat-square" alt="MIT License"/></a>
+
+<br/><br/>
+
+<a href="#how-visualops-works">How it works</a> ·
+<a href="#key-features">Features</a> ·
+<a href="#architecture">Architecture</a> ·
+<a href="#api-routes">API</a> ·
+<a href="#setup">Setup</a> ·
+<a href="#team">Team</a>
+
 </div>
+
+<br/>
 
 Hackathon team repository for Team rocket - [hackindia-team:pixels-to-products-cloudinary-ai-hackathon-2026:team-rocket]
 
+<p align="center">
+  <img src="src/app/opengraph-image.jpg" width="100%" alt="The VisualOps landing page: the headline 'Turn visual data into operational intelligence.' beside a raw-versus-Cloudinary inspection frame of a drone capture, with a g_auto crop and live delivery telemetry"/>
+  <br/>
+  <sub>The landing page — a raw-vs-Cloudinary inspection frame with live delivery telemetry.</sub>
+</p>
+
 VisualOps turns the photos, drone footage and CCTV clips that field teams already capture into searchable, structured, decision-ready evidence. Cloudinary stores, understands, transforms and delivers every frame. VisualOps adds the operational layer on top: records, incident intelligence, search and evidence reports.
 
-```
+```text
 FIELD MEDIA → CLOUDINARY INGESTION → CLOUDINARY AI UNDERSTANDING → STRUCTURED RECORD → SEARCH → INCIDENTS → EVIDENCE → REPORT
 ```
+
+### At a glance
+
+| | |
+| --- | --- |
+| **Built for** | Maintenance, construction, inspection, facilities and fleet teams |
+| **Input** | The photos, drone footage and CCTV clips field teams already capture |
+| **Output** | Structured records, incident intelligence, search and evidence reports with a SHA-256 fingerprint |
+| **Built on** | Cloudinary Upload, Admin (AI Content Analysis), Search and Delivery APIs |
+| **Guiding principle** | Generative AI never touches the record |
+| **System of record** | Cloudinary (asset + tags + context) — there is no database |
+
+<br/>
+
+## Table of contents
+
+- [Hackathon](#hackathon)
+- [Problem](#problem)
+- [Solution](#solution)
+- [Provenance model](#provenance-model)
+- [Key features](#key-features)
+- [How VisualOps works](#how-visualops-works)
+- [Reports and the SHA-256](#reports-and-the-sha-256)
+- [Cloudinary integration](#cloudinary-integration)
+- [API routes](#api-routes)
+- [Architecture](#architecture)
+- [Technology stack](#technology-stack)
+- [Project structure](#project-structure)
+- [Setup](#setup)
+- [Environment variables](#environment-variables)
+- [Running locally](#running-locally)
+- [Build and deployment](#build-and-deployment)
+- [Data and honesty notes](#data-and-honesty-notes)
+- [Team](#team)
+- [License](#license)
+
+<br/>
 
 ## Hackathon
 
 **Pixels to Products — Cloudinary AI Hackathon 2026** (HackIndia) · **Track 1: AI Media Pipelines**
+
+| | |
+| --- | --- |
+| **Event** | Pixels to Products — Cloudinary AI Hackathon 2026 (HackIndia) |
+| **Track** | Track 1: AI Media Pipelines |
+| **Team** | Team Rocket — see [Team](#team) |
+| **Demo** | [▶ Demo video — VisualOps in action](https://drive.google.com/file/d/1xYsK82FI_WE-OEBkqNwI58nKt9Tc4G-N/view?usp=sharing) |
 
 ## Problem
 
@@ -43,7 +125,8 @@ VisualOps runs every capture through a Cloudinary media pipeline and turns it in
 
 On top of the records: **Ask VisualOps** (search), **Incident Intelligence** and **Reports** (evidence packages with a SHA-256 fingerprint).
 
-A guiding principle: **generative AI never touches the record.** Every pipeline step carries an integrity class — *Evidence-safe*, *AI edit* or *Generative* — and that class is shown on the step, the output and the export. Reports only use evidence-safe renditions.
+> [!IMPORTANT]
+> **Generative AI never touches the record.** This is a guiding principle. Every pipeline step carries an integrity class — *Evidence-safe*, *AI edit* or *Generative* — and that class is shown on the step, the output and the export. Reports only use evidence-safe renditions.
 
 ## Provenance model
 
@@ -55,49 +138,103 @@ Every fact VisualOps shows is labelled with a provenance badge (`src/components/
 | **Human classified** | Written by a person: entered at ingest, or a team-written *sample annotation* | Title, site, zone, category, severity, status, observation, action, marked region |
 | **System derived** | Computed or measured by VisualOps | Counts, rankings, ages, delivery bytes/format/cache, HTTP status of a probed frame |
 
-The AI understanding never overwrites the human classification. The two are stored side by side on the asset, shown side by side in the Inspector (AI boxes and the human-marked region), and exported side by side.
+> [!NOTE]
+> The AI understanding never overwrites the human classification. The two are stored side by side on the asset, shown side by side in the Inspector (AI boxes and the human-marked region), and exported side by side.
 
 ## Key features
 
-- **Landing site** — the product story. It has:
-  - a raw-vs-Cloudinary inspection frame with live delivery telemetry;
-  - a WebGL field built from a texture atlas that Cloudinary composites in one request;
-  - a six-stage scroll story, and a product preview that morphs into the console;
-  - a live Cloudinary capability explorer.
-- **AI understanding on ingest** — when a photo is uploaded, the server runs Cloudinary AI Content Analysis on it:
-  - **captioning** — a one-sentence description of the frame;
-  - **coco_v2 object detection** — each object's label, confidence and bounding box;
-  - **auto-tagging** at 0.5 confidence — the detected objects become Cloudinary tags.
+| Feature | In short |
+| --- | --- |
+| **Landing site** | The product story, with a live raw-vs-Cloudinary inspection frame and a live capability explorer |
+| **AI understanding on ingest** | Captioning, `coco_v2` object detection and auto-tagging on every uploaded photo |
+| **Real cloud workspace** | The console shows only the team's records from Cloudinary when the server is configured |
+| **Command Center** | The worst open finding first, then numbers, progress, delivery latency and a live Cloudinary stream |
+| **Media Library + Inspector** | An editorial mosaic, AI boxes beside the human-marked region, and evidence renditions |
+| **Incident Intelligence** | A lead finding, findings by severity and a clickable category × severity risk matrix |
+| **Studio — Visual AI Pipeline Builder** | Operations presets, a before/after viewer and code export |
+| **Pipeline machine** | *Ingest → Understand → Classify → Transform → Optimize → Index* against Cloudinary, with real latency |
+| **Ask VisualOps** | Plain-language search across the human classification and Cloudinary's AI understanding |
+| **Reports** | Four templates, real generation stages and SHA-256-fingerprinted exports |
+| **Accessible, smooth motion** | `prefers-reduced-motion` respected, keyboard-operable controls, focus-trapped dialogs |
 
-  The results are written into the asset's contextual metadata (`ai_caption`, `ai_objects`, `ai_tags`, `ai_model`, `analyzed_at`), next to the record keys, which are kept. Every device reads the understanding back from Cloudinary. Videos are not analysed; they keep face and crop signals from `fl_getinfo` on the poster frame.
-- **Real cloud workspace** — with the server configured, the console shows **only** the team's records from Cloudinary (the *cloud* workspace), seeded by `npm run seed:cloudinary`; bundled samples are hidden. Without a configured server, or while the cloud holds no VisualOps record yet, it shows the bundled *sample* workspace on Cloudinary's public `demo` cloud. A connected console waits until the workspace is read (up to 8 s) before it shows a view, so it never shows the samples first.
-- **Command Center** — the worst open finding first, then:
-  - key numbers and capture activity;
-  - inspection progress by site;
-  - delivery latency and CDN hit ratio, measured from Cloudinary's `Server-Timing` headers;
-  - a live stream of the session's Cloudinary responses.
-- **Media Library + Inspector** — an editorial mosaic with filters and Cloudinary-trimmed video previews. The Inspector shows:
-  - the **AI boxes** Cloudinary detected, next to the **human-marked region**;
-  - the caption and auto-tags, labelled *AI detected*;
-  - original, evidence-enhanced and face-redacted renditions;
-  - face detections, video keyframes and a delivery receipt.
+### Landing site
 
-  From the Inspector you can remove a record you ingested from the workspace. This only takes off the VisualOps tag; the media stays in Cloudinary. Team-seeded sample records are protected: the Inspector shows *Sample record · protected*, and the server refuses to remove them.
-- **Incident Intelligence** — a lead finding, findings grouped by severity, and a clickable category × severity risk matrix. Filters: status, severity, category, site, date and media type.
-- **Studio — Visual AI Pipeline Builder** — transformation steps and presets for operations work. It has:
-  - a before/after viewer (slider, side-by-side, zoom);
-  - code export for React (next-cloudinary), URL, Node, Python, cURL and JSON.
+The product story. It has:
 
-  Generative steps (background replace, object replace, recolour, remove, fill) stay available for previews, but they are clearly marked *Generative* and are never used as evidence.
-- **Pipeline machine** — runs *Ingest → Understand → Classify → Transform → Optimize → Index* against Cloudinary for one capture. Each stage shows its real latency and result, and nothing is simulated.
-- **Ask VisualOps** (Ctrl/⌘ K or `/`) — plain-language questions such as *"sinkhole"*, *"trucks"* or *"Show high severity issues from Building B"*:
-  - Matches use the human classification **and** the Cloudinary AI caption, objects and tags, and results carry provenance badges.
-  - Each search runs in visible stages, with its interpretation shown as chips. Unmatched words are reported, not dropped.
-- **Reports** — four templates: inspection, incident summary, media analysis and asset summary.
-  - Generation runs in real stages, and every evidence frame is requested from Cloudinary during the run.
-  - The document shows provenance badges (human / AI / system), the AI understanding per record, and per-frame delivery results and face-detection counts.
-  - Export to Print/PDF, Markdown, JSON or CSV, with a SHA-256 fingerprint of the JSON export (see [Reports and the SHA-256](#reports-and-the-sha-256)).
-- **Accessible, smooth motion** — every animation respects `prefers-reduced-motion`. Scroll scenes write transforms directly; WebGL and animation loops run only while visible. Dialogs trap focus, and all controls work from the keyboard.
+- a raw-vs-Cloudinary inspection frame with live delivery telemetry;
+- a WebGL field built from a texture atlas that Cloudinary composites in one request;
+- a six-stage scroll story, and a product preview that morphs into the console;
+- a live Cloudinary capability explorer.
+
+### AI understanding on ingest
+
+When a photo is uploaded, the server runs Cloudinary AI Content Analysis on it:
+
+- **captioning** — a one-sentence description of the frame;
+- **coco_v2 object detection** — each object's label, confidence and bounding box;
+- **auto-tagging** at 0.5 confidence — the detected objects become Cloudinary tags.
+
+The results are written into the asset's contextual metadata (`ai_caption`, `ai_objects`, `ai_tags`, `ai_model`, `analyzed_at`), next to the record keys, which are kept. Every device reads the understanding back from Cloudinary. Videos are not analysed; they keep face and crop signals from `fl_getinfo` on the poster frame.
+
+### Real cloud workspace
+
+With the server configured, the console shows **only** the team's records from Cloudinary (the *cloud* workspace), seeded by `npm run seed:cloudinary`; bundled samples are hidden. Without a configured server, or while the cloud holds no VisualOps record yet, it shows the bundled *sample* workspace on Cloudinary's public `demo` cloud. A connected console waits until the workspace is read (up to 8 s) before it shows a view, so it never shows the samples first.
+
+### Command Center
+
+The worst open finding first, then:
+
+- key numbers and capture activity;
+- inspection progress by site;
+- delivery latency and CDN hit ratio, measured from Cloudinary's `Server-Timing` headers;
+- a live stream of the session's Cloudinary responses.
+
+### Media Library + Inspector
+
+An editorial mosaic with filters and Cloudinary-trimmed video previews. The Inspector shows:
+
+- the **AI boxes** Cloudinary detected, next to the **human-marked region**;
+- the caption and auto-tags, labelled *AI detected*;
+- original, evidence-enhanced and face-redacted renditions;
+- face detections, video keyframes and a delivery receipt.
+
+From the Inspector you can remove a record you ingested from the workspace. This only takes off the VisualOps tag; the media stays in Cloudinary. Team-seeded sample records are protected: the Inspector shows *Sample record · protected*, and the server refuses to remove them.
+
+### Incident Intelligence
+
+A lead finding, findings grouped by severity, and a clickable category × severity risk matrix. Filters: status, severity, category, site, date and media type.
+
+### Studio — Visual AI Pipeline Builder
+
+Transformation steps and presets for operations work. It has:
+
+- a before/after viewer (slider, side-by-side, zoom);
+- code export for React (next-cloudinary), URL, Node, Python, cURL and JSON.
+
+Generative steps (background replace, object replace, recolour, remove, fill) stay available for previews, but they are clearly marked *Generative* and are never used as evidence.
+
+### Pipeline machine
+
+Runs *Ingest → Understand → Classify → Transform → Optimize → Index* against Cloudinary for one capture. Each stage shows its real latency and result, and nothing is simulated.
+
+### Ask VisualOps
+
+Open it with <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> or <kbd>/</kbd>, then ask plain-language questions such as *"sinkhole"*, *"trucks"* or *"Show high severity issues from Building B"*:
+
+- Matches use the human classification **and** the Cloudinary AI caption, objects and tags, and results carry provenance badges.
+- Each search runs in visible stages, with its interpretation shown as chips. Unmatched words are reported, not dropped.
+
+### Reports
+
+Four templates: inspection, incident summary, media analysis and asset summary.
+
+- Generation runs in real stages, and every evidence frame is requested from Cloudinary during the run.
+- The document shows provenance badges (human / AI / system), the AI understanding per record, and per-frame delivery results and face-detection counts.
+- Export to Print/PDF, Markdown, JSON or CSV, with a SHA-256 fingerprint of the JSON export (see [Reports and the SHA-256](#reports-and-the-sha-256)).
+
+### Accessible, smooth motion
+
+Every animation respects `prefers-reduced-motion`. Scroll scenes write transforms directly; WebGL and animation loops run only while visible. Dialogs trap focus, and all controls work from the keyboard.
 
 ### Removed
 
@@ -105,19 +242,42 @@ We removed playground features that did not serve the operations workflow, inclu
 
 ## How VisualOps works
 
+```mermaid
+sequenceDiagram
+  autonumber
+  participant B as Browser (console)
+  participant S as VisualOps server
+  participant C as Cloudinary
+  B->>S: POST /api/cloudinary/sign with the record fields
+  S-->>B: Signed parameters (VisualOps tag, preset visualops_uploads, allowed_formats)
+  B->>C: Upload API: file + signed parameters, directly
+  B->>S: POST /api/assets/[id]/analyze (photos)
+  S->>C: Admin API update: captioning, then coco_v2 + auto_tagging 0.5
+  S->>C: Merge the result into the asset's contextual metadata
+  S-->>B: ai + tags
+  B->>S: GET /api/assets
+  S->>C: Search API: tags=visualops, with context and tags
+  S-->>B: Every record, 100 to a page
+  B->>C: Delivery URLs, fl_getinfo and HEAD requests (Server-Timing)
+```
+
 1. **Ingest.** In the console, *Ingest* asks the VisualOps server to sign an upload (`POST /api/cloudinary/sign`). The server:
    - validates the record fields;
    - pins the VisualOps tag, the signed preset `visualops_uploads` and the allowed photo and video formats (`allowed_formats`);
    - signs the exact parameters with the API secret.
 
    The browser then uploads the file **directly to Cloudinary**; the file bytes never pass through the VisualOps server.
+
 2. **Understand.** For photos, the browser calls `POST /api/assets/[id]/analyze`. The server checks that the asset carries the VisualOps tag, then runs Cloudinary AI Content Analysis through the Admin API (`update` with `detection: 'captioning'`, then `detection: 'coco_v2'` + `auto_tagging: 0.5`). It parses the result into `{ caption, objects[{label, confidence, box}], tags, model, analyzedAt }` and **merges** it into the asset's contextual metadata. The route reads the existing context first, so no record key is lost. An asset that was already analysed returns its stored result without spending detections.
+
 3. **Store.** Cloudinary holds the media plus the whole record:
    - tags: `visualops`, category, site, and the auto-tags;
    - contextual metadata: the human fields, provenance (`sample-annotation` or `ingest`), capture-time basis and the AI keys.
 
    The key contract is in `src/lib/cloudinary/record-context.ts`. There is no database.
+
 4. **Read back.** The server queries Cloudinary's **Search API** (`GET /api/assets`, `tags=visualops`, with context and tags) and returns every record, 100 to a page. The plain list is shared for 10 s (per server instance, and by the host's CDN through `s-maxage`), while `GET /api/assets?public_id=…`, which fetches one record by exact public ID, is always read live. The library, incidents, search and reports all work from these records.
+
 5. **Transform and act.** Every view renders Cloudinary delivery URLs with transformations applied on request. `fl_getinfo` returns face landmarks and the `g_auto` crop as JSON. `HEAD` requests read `Server-Timing` for measured bytes, format, cache status and timing. Reports assemble stamped, redacted evidence frames and export a fingerprinted package.
 
 ## Reports and the SHA-256
@@ -129,9 +289,18 @@ The report's SHA-256 is computed in the browser (Web Crypto) over **the exported
 - the **evidence frame URL exactly as rendered** in the document, and its **delivery result from the run**: HTTP status, bytes, format, dimensions and cache;
 - Cloudinary's **face-detection count** for that frame, and the **capture-time basis** (a sample time, or a time recorded by Cloudinary or burned into the footage).
 
-The JSON download is exactly the hashed bytes, so you can recompute the digest with `sha256sum visualops-<kind>-<date>.json` (or `shasum -a 256` on macOS). The image bytes themselves are not hashed; each frame is identified by its URL and its measured size. The Markdown and CSV exports are renderings of the same payload. The Markdown escapes all record and Cloudinary text (Markdown/HTML special characters, table pipes, bare links), and the CSV guards against spreadsheet formula injection.
+The JSON download is exactly the hashed bytes, so you can recompute the digest yourself:
 
-The landing page's SHA-256 values are labelled **sample report payload**. They are computed over a fixed sample payload that names exactly the evidence frame URL shown next to them.
+```bash
+sha256sum visualops-<kind>-<date>.json
+# or, on macOS:
+shasum -a 256 visualops-<kind>-<date>.json
+```
+
+The image bytes themselves are not hashed; each frame is identified by its URL and its measured size. The Markdown and CSV exports are renderings of the same payload. The Markdown escapes all record and Cloudinary text (Markdown/HTML special characters, table pipes, bare links), and the CSV guards against spreadsheet formula injection.
+
+> [!NOTE]
+> The landing page's SHA-256 values are labelled **sample report payload**. They are computed over a fixed sample payload that names exactly the evidence frame URL shown next to them.
 
 ## Cloudinary integration
 
@@ -150,7 +319,8 @@ Everything below is live Cloudinary functionality; nothing is simulated.
 | **Optimisation** | `q_auto`, `f_auto`, `vc_auto`, measured from `Server-Timing`; async renders (HTTP 423) are polled | `src/lib/cloudinary/probe.ts` |
 | **SDKs** | The `cloudinary` Node SDK on the server; `next-cloudinary` and Node/Python snippets in the code export (parity checked by `npm run verify:cloudinary`) | `src/lib/server/cloudinary.ts`, `src/lib/cloudinary/codegen.ts` |
 
-**AI Content Analysis quota.** The free plan includes **500 detections a month**. Each analysis spends two (captioning + `coco_v2`), and only images are analysed. The analyze route never re-runs a stored analysis: an image analysed before gets its stored result. New analyses have a best-effort rate limit per IP (20 requests per 10 minutes, counted by each server instance).
+> [!NOTE]
+> **AI Content Analysis quota.** The free plan includes **500 detections a month**. Each analysis spends two (captioning + `coco_v2`), and only images are analysed. The analyze route never re-runs a stored analysis: an image analysed before gets its stored result. New analyses have a best-effort rate limit per IP (20 requests per 10 minutes, counted by each server instance).
 
 ## API routes
 
@@ -164,6 +334,20 @@ All routes are Next.js route handlers (`src/app/api/**/route.ts`). The API secre
 | `GET /api/assets?public_id=<id>` | One record by exact public ID (it must carry the VisualOps tag), always read live | Strict public-ID validation, same limit as the list |
 | `POST /api/assets/[id]/analyze` | Cloudinary AI understanding of one VisualOps image (`{ resourceType: 'image' }`), merged into its context. Returns `{ ai, tags }`; an image analysed before gets its stored result (`cached: true`) | Same-origin, VisualOps tag required, images only, 20 per 10 min per IP; errors 400/403/404/413/429/502/503 without secrets |
 | `DELETE /api/assets/[id]?resourceType=image\|video` | Removes **only** the VisualOps tag, so the record leaves the workspace but the media stays in Cloudinary. Team-seeded sample records are protected (403) | Same-origin, VisualOps tag required, 30 per 10 min per IP |
+
+**Example — understanding one image.** The request body and response shape of the analyze route, as documented above:
+
+```http
+POST /api/assets/[id]/analyze
+Content-Type: application/json
+
+{ "resourceType": "image" }
+```
+
+```text
+200 → { ai, tags }                  a new analysis, merged into the asset's context
+200 → { ai, tags, cached: true }    an image analysed before: its stored result, no detections spent
+```
 
 ## Architecture
 
@@ -197,20 +381,29 @@ flowchart LR
 
 - **The secret stays on the server.** In the app, only `src/lib/server/cloudinary.ts` (`import 'server-only'`) reads `CLOUDINARY_API_SECRET`, and only the route handlers and their server-only helper (`src/app/api/assets/[id]/guards.ts`) import it.
 - **Server routes are guarded.** The routes that change something (sign, analyze, remove) accept only requests from a page on this site: a present `Origin` must name this host, and a request with neither `Origin` nor `Sec-Fetch-Site: same-origin` is refused. The routes allow-list their inputs, act only on assets carrying the VisualOps tag and map Cloudinary errors to safe messages. Every route except `GET /api/cloudinary/config` has a best-effort rate limit per IP, counted by each server instance.
-- **Security headers** (`next.config.ts`) apply to every response:
-  - `Content-Security-Policy`:
-    - `default-src 'self'`;
-    - images and media from `self`, `data:`/`blob:` and `https://res.cloudinary.com`;
-    - `connect-src` to `self`, `res.cloudinary.com` and `api.cloudinary.com`;
-    - `script-src 'self' 'unsafe-inline'` (Next's inline runtime; `'unsafe-eval'` only in development);
-    - `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`, `object-src 'none'`.
-  - `X-Frame-Options: DENY`
-  - `X-Content-Type-Options: nosniff`
-  - `Referrer-Policy: strict-origin-when-cross-origin`
-  - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
-  - HSTS in production.
 - **Everything else is static.** Pages are prerendered. The browser talks to Cloudinary's CDN directly for media, probes and `fl_getinfo`.
 - **No database.** Cloudinary is the system of record (asset + tags + context). The browser's local storage keeps only UI preferences and a cache of records added in this browser.
+
+### Security headers
+
+Set in `next.config.ts` and applied to every response:
+
+| Header | Value |
+| --- | --- |
+| `Content-Security-Policy` | See the directives below |
+| `X-Frame-Options` | `DENY` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
+| HSTS | In production |
+
+`Content-Security-Policy` directives:
+
+- `default-src 'self'`;
+- images and media from `self`, `data:`/`blob:` and `https://res.cloudinary.com`;
+- `connect-src` to `self`, `res.cloudinary.com` and `api.cloudinary.com`;
+- `script-src 'self' 'unsafe-inline'` (Next's inline runtime; `'unsafe-eval'` only in development);
+- `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`, `object-src 'none'`.
 
 ## Technology stack
 
@@ -223,7 +416,7 @@ flowchart LR
 
 ## Project structure
 
-```
+```text
 src/
   app/
     page.tsx                     Landing page
@@ -253,7 +446,12 @@ scripts/                         Cloudinary setup, sample-workspace seed and liv
 
 ## Setup
 
-Requirements: **Node.js 20.9 or newer**, and a Cloudinary account with the **AI Content Analysis** add-on enabled (its free tier is enough).
+### Requirements
+
+- **Node.js 20.9 or newer**
+- A Cloudinary account with the **AI Content Analysis** add-on enabled (its free tier is enough)
+
+### 1. Install
 
 ```bash
 git clone https://github.com/HackIndiaXYZ/pixels-to-products-cloudinary-ai-hackathon-2026-team-rocket.git
@@ -261,25 +459,51 @@ cd pixels-to-products-cloudinary-ai-hackathon-2026-team-rocket
 npm install
 ```
 
+### 2. Configure and run
+
 Then, in this order:
 
-1. **Environment** — `cp .env.example .env.local` and fill in your Cloudinary values (see below). Never commit `.env.local`.
-2. **Cloud setup** — `npm run setup:cloudinary` creates the structured metadata VisualOps uses in your cloud.
-3. **Seed the workspace** — `npm run seed:cloudinary` copies the sample field captures from Cloudinary's public `demo` cloud into your cloud, tagged `visualops`, and runs AI Content Analysis on the photos (up to two detections each). Their team-written annotations are stored with `provenance=sample-annotation`, so the console labels them *Human classified · sample annotation* and protects them from removal.
-4. **Run** — `npm run dev`.
+1. **Environment** — copy the template and fill in your Cloudinary values (see [Environment variables](#environment-variables)). Never commit `.env.local`.
 
-Without `.env.local` the app still runs, read-only, on the bundled sample workspace on Cloudinary's public `demo` cloud.
+   ```bash
+   cp .env.example .env.local
+   ```
+
+2. **Cloud setup** — creates the structured metadata VisualOps uses in your cloud.
+
+   ```bash
+   npm run setup:cloudinary
+   ```
+
+3. **Seed the workspace** — copies the sample field captures from Cloudinary's public `demo` cloud into your cloud, tagged `visualops`, and runs AI Content Analysis on the photos (up to two detections each). Their team-written annotations are stored with `provenance=sample-annotation`, so the console labels them *Human classified · sample annotation* and protects them from removal.
+
+   ```bash
+   npm run seed:cloudinary
+   ```
+
+4. **Run**
+
+   ```bash
+   npm run dev
+   ```
+
+> [!NOTE]
+> Without `.env.local` the app still runs, read-only, on the bundled sample workspace on Cloudinary's public `demo` cloud.
 
 ### Cloudinary account
 
 1. **Credentials:** Console → **Settings → API Keys** gives the cloud name, API key and API secret.
 2. **Upload preset:** Settings → **Upload → Upload presets** → create **`visualops_uploads`** with these settings:
-   - signing mode **Signed**;
-   - type *upload*;
-   - overwrite on;
-   - use filename off;
-   - unique filename off;
-   - use filename as display name on.
+
+   | Setting | Value |
+   | --- | --- |
+   | Signing mode | **Signed** |
+   | Type | *upload* |
+   | Overwrite | on |
+   | Use filename | off |
+   | Unique filename | off |
+   | Use filename as display name | on |
+
 3. **AI Content Analysis:** enable the add-on (Console → Add-ons). The free plan includes 500 detections a month.
 4. **No Resource list needed:** leave the "Resource list" delivery type restricted. VisualOps reads records through the Search API on the server.
 5. **Protect your credits (after deploying):**
@@ -290,7 +514,10 @@ Without `.env.local` the app still runs, read-only, on the bundled sample worksp
 
 ## Environment variables
 
-Copy `.env.example` to `.env.local`. **Never commit `.env.local`**: every `.env*` file except `.env.example` is git-ignored.
+Copy `.env.example` to `.env.local`.
+
+> [!WARNING]
+> **Never commit `.env.local`.** Every `.env*` file except `.env.example` is git-ignored.
 
 | Variable | Where | Required | Purpose |
 | --- | --- | --- | --- |
@@ -389,9 +616,14 @@ VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the se
   </tr>
 </table>
 
-
 </div>
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+<br/>
+
+<div align="center">
+<sub>Built with Cloudinary for <b>Pixels to Products — Cloudinary AI Hackathon 2026</b> · Track 1: AI Media Pipelines · <a href="#readme-top">Back to top ↑</a></sub>
+</div>
