@@ -36,6 +36,11 @@ export const metadata: Metadata = {
     description: 'Turn visual data into operational intelligence.',
     type: 'website',
   },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'VisualOps',
+    description: 'Turn visual data into operational intelligence.',
+  },
 };
 
 export const viewport: Viewport = {

@@ -35,6 +35,20 @@ const CORNERS = [
   'bottom-[-1.5px] right-[-1.5px] border-b-2 border-r-2 rounded-br-[3px]',
 ] as const;
 
+/** Label rows are 14px tall; stacked labels sit one row plus a 3px gap apart. */
+const LABEL_STEP_PX = 17;
+
+/**
+ * Each label sits on its box's top-left corner, so two boxes whose corners nearly coincide (a truck also
+ * read as a car) would print one label over the other. A label whose corner is close to an earlier one's
+ * stacks below it, inside its own box, instead. Coordinates are percent of the frame.
+ */
+function labelOffsets(regions: Region[]): number[] {
+  return regions.map((r, i) =>
+    r.label ? regions.slice(0, i).filter((o) => o.label && Math.abs(o.x - r.x) < 16 && Math.abs(o.y - r.y) < 5).length : 0,
+  );
+}
+
 /**
  * Draws regions (percent coordinates) over a MediaFrame.
  * `annotation` = human annotation (sample or ingest); `focus` / `face` = live Cloudinary fl_getinfo
@@ -52,6 +66,7 @@ export function RegionLayer({
   className?: string;
 }) {
   const style = VARIANT_STYLE[variant];
+  const stacked = labelOffsets(regions);
   return (
     <div aria-hidden className={cn('pointer-events-none absolute inset-0', className)}>
       {regions.map((r, i) => (
@@ -74,6 +89,11 @@ export function RegionLayer({
                 variant === 'ai' && 'leading-[12px]',
                 r.y < 6 && 'top-[2px] left-[2px]',
               )}
+              style={
+                stacked[i] > 0
+                  ? { top: `${2 + (stacked[i] - (r.y < 6 ? 0 : 1)) * LABEL_STEP_PX}px`, left: '2px' }
+                  : undefined
+              }
             >
               {r.label}
             </span>

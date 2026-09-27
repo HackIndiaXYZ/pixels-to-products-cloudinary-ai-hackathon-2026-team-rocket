@@ -71,7 +71,7 @@ const NAV = [
 /** Mirrors the console sidebar's dataset note (ConsoleShell). */
 const DATASET_NOTE = (
   <>
-    {MOCK.fieldCount} real field captures hosted on Cloudinary’s <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
+    {MOCK.fieldCount} sample field captures hosted on Cloudinary’s <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
     Findings are sample annotations, and capture times are set relative to now.
   </>
 );

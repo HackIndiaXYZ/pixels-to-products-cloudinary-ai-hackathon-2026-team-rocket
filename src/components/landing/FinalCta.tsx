@@ -37,7 +37,7 @@ export function FinalCta() {
         </div>
 
         <p className="mt-8 font-mono text-[11px] leading-relaxed text-ink-3">
-          Runs on Cloudinary’s public demo cloud · <span className="num">{FIELD_CAPTURES}</span> field captures · no account needed
+          Runs on Cloudinary · <span className="num">{FIELD_CAPTURES}</span> sample field captures · no account needed
         </p>
       </div>
     </section>

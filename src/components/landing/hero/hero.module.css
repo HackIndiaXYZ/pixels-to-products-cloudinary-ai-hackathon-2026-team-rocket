@@ -39,6 +39,17 @@
   animation-delay: var(--d, 0ms);
 }
 
+/*
+ * The message paragraph: visible from the first paint and settles with the headline (transform only).
+ * It is the largest text the browser can see at first paint on a phone (the headline lines start below
+ * their masks), so fading it in from 0 would push Largest Contentful Paint to whatever small text happened
+ * to appear last.
+ */
+.settle {
+  animation: settle 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
 /* Inspection frame: settles into place, slightly after the headline. */
 .frameIn {
   animation: frame-in 1100ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -186,6 +197,15 @@
   }
 }
 
+@keyframes settle {
+  from {
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    transform: none;
+  }
+}
+
 @keyframes frame-in {
   from {
     opacity: 0;
@@ -232,6 +252,7 @@
   .rise,
   .fadeUp,
   .fade,
+  .settle,
   .frameIn,
   .bandGlyph,
   .crop,

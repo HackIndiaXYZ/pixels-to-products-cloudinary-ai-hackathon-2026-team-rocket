@@ -264,6 +264,7 @@ export const LibraryView = memo(function LibraryView() {
       </div>
 
       <div className="mt-4 space-y-4 lg:mt-1">
+        <MissingRecordNote />
         {results.length === 0 ? (
           <LibraryEmpty summary={describeFilters(filters)} total={pool.length} onClear={clear} onIngest={() => setIngestOpen(true)} />
         ) : (
@@ -313,6 +314,28 @@ function Results({
  * The mosaic's tiles cannot carry a per-tile source, so it says here how many results the search
  * box found only through Cloudinary's AI understanding (the list view labels each row).
  */
+/**
+ * A link to a record this workspace doesn't hold (removed from it, or from another cloud) opens nothing,
+ * so say so. Shown only once the workspace is known, never while it is still being read.
+ */
+function MissingRecordNote() {
+  const { inspectId } = useConsoleUi();
+  const { getAsset, workspaceSettled } = useConsoleData();
+  const { inspect } = useConsoleActions();
+  if (!workspaceSettled || !inspectId || getAsset(inspectId)) return null;
+  return (
+    <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border border-line bg-surface px-3 py-2 text-[12.5px] text-ink-2">
+      <span className="min-w-0">
+        No record <span className="break-all font-mono text-ink">{inspectId}</span> in this workspace. It may have been removed, or it
+        belongs to another cloud.
+      </span>
+      <button type="button" className="btn btn-ghost btn-sm ml-auto" onClick={() => inspect(null)}>
+        <X className="h-3.5 w-3.5" /> Dismiss
+      </button>
+    </div>
+  );
+}
+
 function AiMatchNote({ assets, query }: { assets: MediaAsset[]; query: string }) {
   const viaAi = useMemo(() => (query.trim() ? assets.filter((a) => aiOnlyTerms(a, query).length > 0) : []), [assets, query]);
   if (!viaAi.length) return null;

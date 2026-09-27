@@ -13,7 +13,7 @@ import {
   Siren,
   Wand2,
 } from 'lucide-react';
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, ViewTransition, type ComponentType, type MouseEvent } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, ViewTransition, type ComponentType, type MouseEvent } from 'react';
 import { canUpload, DEMO_CLOUD } from '@/lib/cloudinary/config';
 import { fieldAssets, findingRecords, isOpen } from '@/lib/analytics';
 import { Logo } from '@/components/brand/Logo';
@@ -91,7 +91,8 @@ function skipToContent(event: MouseEvent<HTMLAnchorElement>) {
  */
 export function ConsoleShell() {
   const { route } = useConsoleRoute();
-  const { assets, settings, backend, workspace } = useConsoleData();
+  const { assets, settings, backend, workspace, workspaceSettled } = useConsoleData();
+  const ready = useWorkspaceReady(workspaceSettled);
   const { navigate, setPaletteOpen, setIngestOpen, setSettingsOpen } = useConsoleActions();
   const mod = useModKey();
 
@@ -234,14 +235,14 @@ export function ConsoleShell() {
                     )}
                     <Icon className={cn('relative h-4 w-4', active ? 'text-signal' : 'text-ink-3')} />
                     <span className="relative font-medium">{item.label}</span>
-                    {item.view === 'incidents' && openCount > 0 && (
+                    {item.view === 'incidents' && ready && openCount > 0 && (
                       <span className="num relative ml-auto rounded-[5px] bg-overlay px-1.5 font-mono text-[10.5px] text-ink-2">
                         <span className="sr-only">, </span>
                         {openCount}
                         <span className="sr-only"> open</span>
                       </span>
                     )}
-                    {item.view === 'library' && ownCount > 0 && (
+                    {item.view === 'library' && ready && ownCount > 0 && (
                       <span className="num relative ml-auto rounded-[5px] bg-signal px-1.5 font-mono text-[10.5px] text-signal-ink">
                         <span className="sr-only">, </span>+{ownCount}
                         <span className="sr-only"> of your own records beyond the sample dataset</span>
@@ -255,14 +256,16 @@ export function ConsoleShell() {
             <div className="mt-auto space-y-3 border-t border-line px-1.5 pt-3">
               <div>
                 <div className="label">Dataset</div>
-                {workspace === 'cloud' ? (
+                {!ready ? (
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">Reading the workspace from Cloudinary…</p>
+                ) : workspace === 'cloud' ? (
                   <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">
                     {assets.length} records stored in your Cloudinary cloud <span className="font-mono text-ink-2">{cloudName}</span>, read with the
                     Search API. Sample-workspace findings are team annotations; captions and objects are Cloudinary AI.
                   </p>
                 ) : (
                   <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">
-                    {sampleCount} real field captures hosted on Cloudinary’s <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
+                    {sampleCount} sample field captures hosted on Cloudinary’s <span className="font-mono text-ink-2">{DEMO_CLOUD}</span> cloud.
                     Findings are sample annotations, and capture times are set relative to now.
                   </p>
                 )}
@@ -285,7 +288,7 @@ export function ConsoleShell() {
               transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
               className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7"
             >
-              <CurrentView />
+              {ready ? <CurrentView /> : <WorkspaceLoading />}
             </motion.div>
           </main>
         </ViewTransition>
@@ -316,10 +319,44 @@ export function ConsoleShell() {
         </nav>
       </ViewTransition>
 
-      <Inspector />
+      {ready && <Inspector />}
       <AskPalette />
       <IngestSheet />
       <SettingsDialog />
+    </div>
+  );
+}
+
+/** Longest the console waits for the workspace before showing what it has. */
+const SETTLE_TIMEOUT_MS = 8000;
+
+/**
+ * True once the workspace is known: the server answered and, when it is connected, the team's records were
+ * read. Until then the views wait, so a connected console never shows the bundled samples for a moment
+ * before swapping in the team's cloud. A slow or stuck read gives up waiting after SETTLE_TIMEOUT_MS.
+ */
+function useWorkspaceReady(settled: boolean): boolean {
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    if (settled) return;
+    const timer = window.setTimeout(() => setExpired(true), SETTLE_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [settled]);
+  return settled || expired;
+}
+
+/** Placeholder for the current view while the workspace is read, shaped like the console's own skeleton. */
+function WorkspaceLoading() {
+  return (
+    <div role="status" aria-live="polite">
+      <span className="sr-only">Reading the workspace from Cloudinary…</span>
+      <div aria-hidden className="h-6 w-48 animate-pulse rounded bg-raised" />
+      <div aria-hidden className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-24 animate-pulse rounded-[12px] bg-surface" />
+        ))}
+      </div>
+      <div aria-hidden className="mt-3 h-72 animate-pulse rounded-[12px] bg-surface" />
     </div>
   );
 }

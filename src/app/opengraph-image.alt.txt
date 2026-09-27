@@ -1,0 +1,1 @@
+VisualOps: turn visual data into operational intelligence. A drone frame with a live Cloudinary g_auto crop and its delivery receipt.

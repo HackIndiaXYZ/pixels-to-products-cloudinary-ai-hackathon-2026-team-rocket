@@ -42,7 +42,7 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; href: string
     links: [
       {
         label: 'GitHub',
-        href: 'https://github.com/iabhishekn/pixels-to-products-cloudinary-ai-hackathon-2026-team-rocket',
+        href: 'https://github.com/HackIndiaXYZ/pixels-to-products-cloudinary-ai-hackathon-2026-team-rocket',
         external: true,
       },
       { label: 'Privacy', href: '/privacy' },

@@ -17,7 +17,7 @@ import {
 import type { CloudSettings, MediaAsset } from '@/lib/types';
 import { buildSampleAssets } from '@/lib/data/dataset';
 import { DEMO_CLOUD, ENV_SETTINGS } from '@/lib/cloudinary/config';
-import { fetchBackendConfig, fetchCloudAssets, type BackendConfig, type CloudResource } from '@/lib/cloudinary/backend';
+import { fetchBackendConfig, fetchCloudAssets, type BackendConfig, type CloudAssetsPage, type CloudResource } from '@/lib/cloudinary/backend';
 import { cloudResourceToAsset } from '@/lib/cloudinary/upload';
 import { defaultPresetFor, presetSteps, type PipelineStep } from '@/lib/cloudinary/pipeline';
 import { DEFAULT_SCOPE, type ReportKind, type ReportScope } from '@/lib/report';
@@ -392,11 +392,11 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   /** Only the latest refresh writes state, so an older response that arrives late can't overwrite a newer one. */
   const refreshSeq = useRef(0);
 
-  const refreshCloud = useCallback(async () => {
+  const refreshCloud = useCallback(async (prefetched?: Promise<CloudAssetsPage>) => {
     const seq = ++refreshSeq.current;
     setCloud({ status: 'loading' });
     try {
-      const page = await fetchCloudAssets();
+      const page = await (prefetched ?? fetchCloudAssets());
       const at = Date.now();
       for (const [key, removedAt] of tombstones.current) if (at - removedAt > TOMBSTONE_MS) tombstones.current.delete(key);
       const records = toRecords(page, now).filter((a) => !tombstones.current.has(assetKey(a)));
@@ -435,10 +435,14 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const controller = new AbortController();
+    // The records are read alongside the config rather than after it, so a connected console shows the team's
+    // workspace a round trip sooner. On a server without credentials the list answers 503 and is ignored.
+    const records = fetchCloudAssets(controller.signal);
+    records.catch(() => undefined);
     void fetchBackendConfig(controller.signal).then((config) => {
       if (controller.signal.aborted) return;
       setBackend(config);
-      if (config.configured) refreshCloud().catch(() => undefined);
+      if (config.configured) refreshCloud(records).catch(() => undefined);
     });
     return () => controller.abort();
   }, [refreshCloud]);

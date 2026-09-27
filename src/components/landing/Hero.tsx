@@ -94,8 +94,8 @@ export function Hero() {
           </h1>
 
           <p
-            className={cn('mt-7 max-w-[34rem] text-[16px] leading-[1.6] text-ink-2 sm:mt-8 sm:text-[17px]', styles.fadeUp)}
-            style={at(640)}
+            className={cn('mt-7 max-w-[34rem] text-[16px] leading-[1.6] text-ink-2 sm:mt-8 sm:text-[17px]', styles.settle)}
+            style={at(210)}
           >
             Scattered field photos, drone footage and CCTV become searchable, structured operational evidence. Every frame is
             processed end to end by Cloudinary.
