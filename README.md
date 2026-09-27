@@ -351,6 +351,7 @@ VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the se
       <sub><b>🧠 AI &amp; Media Intelligence</b></sub>
       <br/><br/>
       <a href="mailto:adityaraikwar792@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Aditya Raikwar"/></a>
+      <a href="https://github.com/adityaraikwar792-lab"><img src="https://img.shields.io/badge/GitHub-0a1120?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Aditya Raikwar on GitHub"/></a>
       <br/><br/>
     </td>
     <td align="center" valign="top" width="25%">
@@ -360,6 +361,7 @@ VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the se
       <sub><b>☁️ Backend &amp; Cloudinary Integration</b></sub>
       <br/><br/>
       <a href="mailto:akshatlohiya12@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Akshat Lohiya"/></a>
+      <a href="https://github.com/akshatlohiya12-mac"><img src="https://img.shields.io/badge/GitHub-0a1120?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Akshat Lohiya on GitHub"/></a>
       <br/><br/>
     </td>
     <td align="center" valign="top" width="25%">
@@ -369,6 +371,7 @@ VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the se
       <sub><b>🔗 Full-Stack Integration &amp; Technical Lead</b></sub>
       <br/><br/>
       <a href="mailto:nethk1006@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Nethaniel Johan Kurian"/></a>
+      <a href="https://github.com/Neth766"><img src="https://img.shields.io/badge/GitHub-0a1120?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Nethaniel Johan Kurian on GitHub"/></a>
       <br/><br/>
     </td>
   </tr>
