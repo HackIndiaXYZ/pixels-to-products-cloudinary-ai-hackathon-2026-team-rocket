@@ -2,6 +2,16 @@
 
 **Turn visual data into operational intelligence.**
 
+<div align="center">
+
+<a href="https://drive.google.com/file/d/1xYsK82FI_WE-OEBkqNwI58nKt9Tc4G-N/view?usp=sharing">
+  <img src="https://img.shields.io/badge/%E2%96%B6%20Watch%20the%20demo-Google%20Drive-3dd6f5?style=for-the-badge&amp;logo=googledrive&amp;logoColor=white&amp;labelColor=0a1120" height="42" alt="Watch the VisualOps demo video"/>
+</a>
+
+<sub><a href="https://drive.google.com/file/d/1xYsK82FI_WE-OEBkqNwI58nKt9Tc4G-N/view?usp=sharing">▶ Demo video — VisualOps in action</a> · Cloudinary AI Hackathon 2026 · Track 1: AI Media Pipelines</sub>
+
+</div>
+
 Hackathon team repository for Team rocket - [hackindia-team:pixels-to-products-cloudinary-ai-hackathon-2026:team-rocket]
 
 VisualOps turns the photos, drone footage and CCTV clips that field teams already capture into searchable, structured, decision-ready evidence. Cloudinary stores, understands, transforms and delivers every frame. VisualOps adds the operational layer on top: records, incident intelligence, search and evidence reports.
