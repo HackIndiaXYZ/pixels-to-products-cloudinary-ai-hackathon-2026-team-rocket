@@ -346,16 +346,6 @@ VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the se
     </td>
     <td align="center" valign="top" width="25%">
       <br/>
-      <img src="https://ui-avatars.com/api/?name=Aditya+Raikwar&amp;size=160&amp;background=132036&amp;color=3dd6f5&amp;bold=true&amp;rounded=true&amp;format=png" width="84" height="84" alt="Aditya Raikwar"/>
-      <h3>Aditya Raikwar</h3>
-      <sub><b>🧠 AI &amp; Media Intelligence</b></sub>
-      <br/><br/>
-      <a href="mailto:adityaraikwar792@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Aditya Raikwar"/></a>
-      <a href="https://github.com/adityaraikwar792-lab"><img src="https://img.shields.io/badge/GitHub-0a1120?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Aditya Raikwar on GitHub"/></a>
-      <br/><br/>
-    </td>
-    <td align="center" valign="top" width="25%">
-      <br/>
       <img src="https://ui-avatars.com/api/?name=Akshat+Lohiya&amp;size=160&amp;background=132036&amp;color=3dd6f5&amp;bold=true&amp;rounded=true&amp;format=png" width="84" height="84" alt="Akshat Lohiya"/>
       <h3>Akshat Lohiya</h3>
       <sub><b>☁️ Backend &amp; Cloudinary Integration</b></sub>
@@ -372,6 +362,16 @@ VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the se
       <br/><br/>
       <a href="mailto:nethk1006@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Nethaniel Johan Kurian"/></a>
       <a href="https://github.com/Neth766"><img src="https://img.shields.io/badge/GitHub-0a1120?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Nethaniel Johan Kurian on GitHub"/></a>
+      <br/><br/>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <br/>
+      <img src="https://ui-avatars.com/api/?name=Aditya+Raikwar&amp;size=160&amp;background=132036&amp;color=3dd6f5&amp;bold=true&amp;rounded=true&amp;format=png" width="84" height="84" alt="Aditya Raikwar"/>
+      <h3>Aditya Raikwar</h3>
+      <sub><b>🧠 AI &amp; Media Intelligence</b></sub>
+      <br/><br/>
+      <a href="mailto:adityaraikwar792@gmail.com"><img src="https://img.shields.io/badge/Email-0a1120?style=flat-square&amp;logo=gmail&amp;logoColor=3dd6f5" alt="Email Aditya Raikwar"/></a>
+      <a href="https://github.com/adityaraikwar792-lab"><img src="https://img.shields.io/badge/GitHub-0a1120?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Aditya Raikwar on GitHub"/></a>
       <br/><br/>
     </td>
   </tr>
