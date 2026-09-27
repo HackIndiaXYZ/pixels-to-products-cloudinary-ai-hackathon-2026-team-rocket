@@ -377,7 +377,6 @@ VisualOps deploys to any Node host that runs Next.js, such as Vercel. Set the se
   </tr>
 </table>
 
-<sub>Roles describe each member's area of responsibility for the hackathon; they are not a record of individual commits.</sub>
 
 </div>
 
